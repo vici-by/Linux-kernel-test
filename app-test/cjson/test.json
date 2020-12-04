@@ -1,0 +1,16 @@
+{
+  "flag":true,
+  "rouble":null,
+  "num0":30,
+  "num1":3.2,
+  "num2":-3.2,
+
+  "ip":"192.168.1.7",
+  "arr0":[1,2,3],
+  "arr1":["n1","n2","n3"],
+
+  "arr2":[
+      {"name":"Diaos","age":18},
+      {"name":"Goddess" ,"age":16}
+   ]
+}
