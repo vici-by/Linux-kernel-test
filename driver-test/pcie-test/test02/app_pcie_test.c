@@ -17,23 +17,24 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <time.h>
+#include<getopt.h>
 
 
 
 /* 定义设备类型 */
 #define IOC_MAGIC  'p'
-#define PCIE_DEMO_READ_CONFIG		_IO(IOC_MAGIC, 0)
-#define PCIE_DEMO_DUMP_RESOURCE		_IO(IOC_MAGIC, 1)
-#define PCIE_DEMO_READ_BAR			_IO(IOC_MAGIC, 2)
-#define PCIE_DEMO_WRITE_BAR			_IO(IOC_MAGIC, 3)
+#define PCIE_DEMO_READ_CONFIG       _IO(IOC_MAGIC, 0)
+#define PCIE_DEMO_DUMP_RESOURCE     _IO(IOC_MAGIC, 1)
+#define PCIE_DEMO_READ_BAR          _IO(IOC_MAGIC, 2)
+#define PCIE_DEMO_WRITE_BAR         _IO(IOC_MAGIC, 3)
 
 #define DEV_NAME "/dev/PCIE_DEMO"
 
 struct pci_demo_opt {
-	unsigned long barnum;
-	unsigned long len;
-	unsigned long addr;
-	unsigned long offset;
+    unsigned long barnum;
+    unsigned long len;
+    unsigned long addr;
+    unsigned long offset;
 };
 
 void dump_data(void * d, size_t len)
@@ -61,7 +62,8 @@ int htoi(char * s)
     } else {
         return atoi(s);
     }
-    for (; (s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'z') || (s[i] >='A' && s[i] <= 'Z');++i)
+    for (; (s[i] >= '0' && s[i] <= '9') || (s[i] >= 'a' && s[i] <= 'z') \
+            || (s[i] >='A' && s[i] <= 'Z');++i)
     {
         if (tolower(s[i]) > '9') {
             n = 16 * n + (10 + tolower(s[i]) - 'a');
@@ -74,94 +76,153 @@ int htoi(char * s)
 
 
 
-
+static void app_pcie_test_help(const char * s)
+{
+    printf("Usage %s:\n",s);
+    printf("\t-r read"
+         "\n\t-w write"
+         "\n\t-s stability\n");
+    printf("\t-b barnum,default 0\n");
+    printf("\t-l len,default 0x1024\n");
+    printf("\t-o offset,default 0\n");
+    printf("\t-v write value,default 0x5A\n");
+    printf("\t-c stability counts,default 0x1000\n");
+}
 int main(int argc, char * argv[])
 {
-	int ret = 0;
-	int i   = 0;
-	int fd = open(DEV_NAME, O_RDWR);
-	if(fd < 0){
-		perror("open failed");
-		return -1;
-	}
-	struct pci_demo_opt opt;
+    int c;
+
+    int digit_optind = 0;
+    int option_index = 0;
+    char *string = "rwsb:l:o:v:c:h";
+
+    char cmd = 'r';
+    char barno = 0;
+    char value = 0x5A;
+    size_t len = 0x1024;
+    size_t count = 0x1024;
+    size_t offset = 0;
+
+    printf("[%s %d]: version %s\n", __func__,__LINE__,"0.0.0.0");
+
+    static struct option long_options[] = {
+        // 操作类型   
+        {"read",            no_argument,NULL, 'r'},
+        {"write",           no_argument,NULL, 'w'},
+        {"stability",       no_argument,NULL, 's'},
+
+        // 操作属性
+        {"barno",           required_argument,NULL, 'b'},
+        {"len",             required_argument,NULL, 'l'},
+        {"offset",          required_argument,NULL, 'o'},
+        {"value",           required_argument,NULL, 'v'},
+        {"count",           required_argument,NULL, 'c'},
+        {"help",           required_argument,NULL, 'h'},
+        {NULL,     0,                      NULL, 0},
+    }; 
+    while((c =getopt_long_only(argc,argv,string,long_options,&option_index))!= -1) {
+#if 0
+        printf("opt = %c\t\t", c);
+        printf("optarg = %s\t\t",optarg);
+        printf("optind = %d\t\t",optind);
+        printf("argv[optind] =%s\t\t", argv[optind]);
+        printf("option_index = %d\n",option_index);
+#endif
+        switch(c){
+            case 'r':            
+            case 'w':           
+            case 's':
+                cmd  = c;
+            break;
+            case 'b':
+                barno = htoi(optarg);
+            break;
+            case 'l':
+                len   = htoi(optarg);
+            break;
+            case 'o':
+                offset = htoi(optarg);
+            break;
+            case 'v':
+                value  = htoi(optarg);
+            break;
+            case 'c':
+                count  = htoi(optarg);
+            break;
+            case 'h':
+                app_pcie_test_help(argv[0]);
+            return 0;
+            default:
+            break;
+        }
+    }
+    printf("cmd  is %c, barnum is %d, len %#lx,offset is %#lx, value is %#.2x, count is %#lx\n",
+        cmd , barno, len,offset,value,count);
+
+
+    int ret = 0;
+    int i   = 0;
+    long j = 0;
+    int fd = open(DEV_NAME, O_RDWR);
+    if(fd < 0){
+        perror("open failed");
+        return -1;
+    }
+    struct pci_demo_opt opt;
     struct pci_demo_opt topt;
-	memset(&opt, 0, sizeof(struct pci_demo_opt));
+    memset(&opt, 0, sizeof(struct pci_demo_opt));
     srandom((long int)time(NULL));
 
 
-	switch(argv[1][0]){
-	case 'r':
-		{
-			opt.barnum = htoi(argv[2]);
-			opt.len = htoi(argv[3]);
-			opt.offset = htoi(argv[4]);
-			opt.addr = (unsigned long)malloc(opt.len);
+    switch(cmd ){
+    case 'r':
+        {
+            opt.barnum = barno;
+            opt.len = len;
+            opt.offset = offset;
+            opt.addr = (unsigned long)malloc(opt.len);
             memset((void *)(opt.addr), 0, opt.len );
-			ret = ioctl(fd, PCIE_DEMO_READ_BAR, &opt);
-			if(ret < 0){
-				perror("read bar failed\n");
-				free((void*)(opt.addr));
-				break;
-			}
-			dump_data((void*)(opt.addr), opt.len);
-			free((void*)(opt.addr));
-		}
-		break;
-	case 'w':
-        {
-			opt.barnum = htoi(argv[2]);
-			opt.len = htoi(argv[3]);
-			opt.offset = htoi(argv[5]);
-			opt.addr = (unsigned long)malloc(opt.len);
-            memset((void *)(opt.addr), htoi(argv[4]), opt.len );
-			ret = ioctl(fd, PCIE_DEMO_WRITE_BAR, &opt);
-			if(ret < 0){
-				perror("write bar failed\n");
-				free((void*)(opt.addr));
-				break;
-			}
-			free((void*)(opt.addr));
+            ret = ioctl(fd, PCIE_DEMO_READ_BAR, &opt);
+            if(ret < 0){
+                perror("read bar failed\n");
+                free((void*)(opt.addr));
+                break;
+            }
+            dump_data((void*)(opt.addr), opt.len);
+            free((void*)(opt.addr));
         }
-		break;
-    case 'd':
+        break;
+    case 'w':
         {
-			ret = ioctl(fd, PCIE_DEMO_DUMP_RESOURCE, &opt);
-			if(ret < 0){
-				perror("dump resource failed\n");
-				break;
-			}
+            opt.barnum = barno;
+            opt.len = len;
+            opt.offset = offset;
+            opt.addr = (unsigned long)malloc(opt.len);
+            memset((void *)(opt.addr), value, opt.len );
+            ret = ioctl(fd, PCIE_DEMO_WRITE_BAR, &opt);
+            if(ret < 0){
+                perror("write bar failed\n");
+                free((void*)(opt.addr));
+                break;
+            }
+            free((void*)(opt.addr));
         }
-		break;
-    case 'c':
-        {
-			opt.barnum = 0;
-			opt.len = 0x40;
-			opt.addr = (unsigned long)malloc(opt.len);
-            memset((void *)(opt.addr), 0, opt.len );
-			ret = ioctl(fd, PCIE_DEMO_READ_CONFIG, &opt);
-			if(ret < 0){
-				perror("read config failed\n");
-				free((void*)(opt.addr));
-				break;
-			}
-			dump_data((void*)(opt.addr), opt.len);
-			free((void*)(opt.addr));
-        }
-		break;
+        break;
     case 's':
         {
-            opt.barnum = htoi(argv[2]);
-            opt.len = htoi(argv[3]);
+            opt.barnum = barno;
+            opt.len = len;
+            opt.offset = offset;
             opt.addr = (unsigned long)malloc(opt.len);
-            topt.barnum = htoi(argv[2]);
-            topt.len = htoi(argv[3]);
-			opt.offset = htoi(argv[4]);
+            topt.barnum = barno;
+            topt.len = len;
+            topt.offset = offset;
             topt.addr = (unsigned long)malloc(opt.len);
 
-            for(i=0;i<1000;++i){
+            for(i=0;i<count;++i){
                 memset((void *)(topt.addr),0x00, opt.len);
-                memset((void *)(opt.addr),random() % 255, opt.len);
+                for(j=0; j<opt.len; ++j)
+                    ((char *)(opt.addr))[j] = random() % 255;
                 ret = ioctl(fd, PCIE_DEMO_WRITE_BAR, &opt);
                 if(ret < 0){
                     perror("write bar failed");
@@ -172,7 +233,7 @@ int main(int argc, char * argv[])
                     perror("write bar failed");
                     break;
                 }
-                if(memcmp(opt.addr, topt.addr, opt.len) != 0) {
+                if(memcmp((char *)(opt.addr), (char *)(topt.addr), opt.len) != 0) {
                     printf("memcmp failed\n");
                 } else {
                     printf("memcmp OK\n");
@@ -182,9 +243,7 @@ int main(int argc, char * argv[])
             free((void *)(topt.addr));
         }
         break;
-	}
+    }
 
-
-	close(fd);
-	return 0;
+    return 0;
 }
