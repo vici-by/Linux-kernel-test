@@ -12,6 +12,10 @@ export LINUX="linux-5.8.14"
 export QEMU="qemu-5.1.0"
 export UBOOT="u-boot-2020.07"
 export BUSYBOX="busybox-1.32.0"
+export EDK2="edk2"
+export OPENBIOS="openbios"
+export EDK2DIR=${ROOTDIR}/linux-src/${EDK2}
+export OPENBIOSDIR=${ROOTDIR}/linux-src/${OPENBIOS}
 export QEMUDIR=${ROOTDIR}/linux-src/${QEMU}
 export LINUXDIR=${ROOTDIR}/linux-src/${LINUX}
 export UBOOTDIR=${ROOTDIR}/linux-src/${UBOOT}
@@ -48,6 +52,8 @@ do_check_env()
               debootstrap bsdtar \
               libelf-dev gcc-multilib g++-multilib \
               libcap-ng-dev
+
+    sudo apt-get install -y build-essential uuid-dev nasm
     sudo apt-get install -y qemu gcc make gdb git figlet
     sudo apt-get install -y libncurses5-dev iasl wget
     sudo apt-get install -y device-tree-compiler
@@ -96,6 +102,26 @@ do_check_uboot()
     fi
     cd $ROOTDIR
 }
+do_check_bios()
+{
+    cd $ROOTDIR
+    mkdir -p linux-src && cd linux-src
+    if [ ! -e  ${EDK2} ]
+    then
+        echo "aaa"
+        git clone https://github.com/tianocore/edk2.git
+        cd ${EDK2}
+        git checkout  --track origin/UDK2018
+        cd ../
+    fi
+
+    if [ ! -e  ${OPENBIOS} ]
+    then
+        git clone https://github.com/openbios/openbios.git
+    fi
+    cd $ROOTDIR
+}
+
 do_check_busybox()
 {
     cd $ROOTDIR
@@ -208,37 +234,39 @@ do_x8664_env()
 		then
 			echo "qemu install failed"
 			return -1
-        else
-            echo "PATH=${arm64dir}/qemu-aarch64-bin/bin:$PATH" >> ~/.bashrc
         fi
 	fi
 
-	echo "check uboot-system-aarch64"
-    if [ ! -e "uboot" ]
+	echo "check uefi"
+    if [ ! -e "edk2" ]
     then
-        cp -r ${UBOOTDIR}  ./ && ln -s ${arm64dir}/${UBOOT} ${arm64dir}/uboot
-		# cp build_uboot.sh uboot
-        # cp build_uboot.sh uboot  && cd uboot && ./build_uboot.sh init
-        cd ${arm64dir}
+        cp -r ${EDK2DIR}  ./
+        cd ${x8664dir}
+    fi
+	echo "check openbios"
+    if [ ! -e "openbios" ]
+    then
+        cp -r ${OPENBIOSDIR}  ./
+        cd ${x8664dir}
     fi
 
     echo "check busybox-system-aarch64"
     if [ ! -e "busybox" ]
     then
-        cp -r ${BUSYBOXDIR}  ./ && ln -s ${arm64dir}/${BUSYBOX} ${arm64dir}/busybox
+        cp -r ${BUSYBOXDIR}  ./ && ln -s ${x8664dir}/${BUSYBOX} ${x8664dir}/busybox
 		# cp build_busybox.sh busybox
 		# cp make_rootfs.sh busybox
         # cp build_busybox.sh busybox  && cd busybox && ./build_busybox.sh init
-        cd ${arm64dir}
+        cd ${x8664dir}
     fi
 
-    echo "check linux-system-aarch64"
+    echo "check linux-system-x86"
     if [ ! -e "linux" ]
     then
-        cp -r ${LINUXDIR}  ./ && ln -s ${arm64dir}/${LINUX} ${arm64dir}/linux
+        cp -r ${LINUXDIR}  ./ && ln -s ${x8664dir}/${LINUX} ${x8664dir}/linux
 		# cp build_linux.sh linux
         # cp build_linux.sh linux  && cd linux && ./build_linux.sh init
-        cd ${arm64dir}
+        cd ${x8664dir}
     fi
 	cd  ${ROOTDIR}
 }
@@ -321,10 +349,11 @@ do_arm32_env()
 # baiy@baiy-ThinkPad-E470c:kernel-test$ ls linux-src/
 # busybox-1.32.0  linux-5.8.14  qemu-5.1.0  u-boot-2020.07
 ###########################################################
-do_check_env
+#do_check_env
 do_check_linux
 do_check_qemu
 do_check_uboot
+do_check_bios
 do_check_busybox
 
 
@@ -339,7 +368,7 @@ case $1 in
         ;;
     "x86-64")
         do_x8664_env
-		cd x86 && ./RunLinux.sh x86_env
+		#cd x86 && ./RunLinux.sh x86_env
         ;;
 esac
 
