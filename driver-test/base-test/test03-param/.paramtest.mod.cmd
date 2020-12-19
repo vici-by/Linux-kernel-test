@@ -1,0 +1,1 @@
+cmd_/home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test03-param/paramtest.mod := { echo  /home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test03-param/paramtest.o; echo; } > /home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test03-param/paramtest.mod

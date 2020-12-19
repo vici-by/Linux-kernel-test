@@ -1,0 +1,1 @@
+cmd_/home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test04-timer/test-ktime/ktimetest.mod := { echo  /home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test04-timer/test-ktime/ktimetest.o; echo; } > /home/baiy/workspace/Linux-kernel-test/driver-test/base-test/test04-timer/test-ktime/ktimetest.mod

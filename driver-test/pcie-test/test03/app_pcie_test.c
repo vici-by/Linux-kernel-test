@@ -27,7 +27,13 @@
 #define PCIE_DEMO_DUMP_RESOURCE     _IO(IOC_MAGIC, 1)
 #define PCIE_DEMO_READ_BAR          _IO(IOC_MAGIC, 2)
 #define PCIE_DEMO_WRITE_BAR         _IO(IOC_MAGIC, 3)
-#define PCIE_BAR_STABLE_TEST        _IO(IOC_MAGIC, 4)
+#define PCIE_DEMO_HDMA_READ_BAR     _IO(IOC_MAGIC, 4) // host dma
+#define PCIE_DEMO_HDMA_WRITE_BAR    _IO(IOC_MAGIC, 5)
+#define PCIE_DEMO_EDMA_READ_BAR     _IO(IOC_MAGIC, 6) // device dma
+#define PCIE_DEMO_EDMA_WRITE_BAR    _IO(IOC_MAGIC, 7)
+#define PCIE_CBDMA_DDR_2_DDR        _IO(IOC_MAGIC, 8)
+#define PCIE_CBDMA_BAR_2_BAR        _IO(IOC_MAGIC, 9)
+
 
 #define DEV_NAME "/dev/PCIE_DEMO"
 
@@ -87,7 +93,7 @@ static void app_pcie_test_help(const char * s)
     printf("\t-l len,default 0x1024\n");
     printf("\t-o offset,default 0\n");
     printf("\t-v write value,default 0x5A\n");
-    printf("\t-c stability counts,default 100\n");
+    printf("\t-c stability counts,default 0x1000\n");
 }
 int main(int argc, char * argv[])
 {
@@ -101,7 +107,7 @@ int main(int argc, char * argv[])
     char barno = 0;
     char value = 0x5A;
     size_t len = 0x1024;
-    size_t count = 100;
+    size_t count = 0x1024;
     size_t offset = 0;
 
     printf("[%s %d]: version %s\n", __func__,__LINE__,"0.0.0.0");
@@ -154,8 +160,6 @@ int main(int argc, char * argv[])
                 app_pcie_test_help(argv[0]);
             return 0;
             default:
-                app_pcie_test_help(argv[0]);
-                return 0;
             break;
         }
     }
@@ -213,7 +217,6 @@ int main(int argc, char * argv[])
         break;
     case 's':
         {
-#if 0            
             opt.barnum = barno;
             opt.len = len;
             opt.offset = offset;
@@ -245,15 +248,6 @@ int main(int argc, char * argv[])
             }
             free((void *)(opt.addr));
             free((void *)(topt.addr));
-#else
-            printf("bar no is %d, len is %ld, offset is %ld, count is %ld\n",barno,len,offset,count);
-            opt.barnum = barno;
-            opt.len = len;
-            opt.offset = offset;
-            opt.addr = count;
-            ret = ioctl(fd, PCIE_BAR_STABLE_TEST, &opt);
-            printf("PCIE_BAR_STABLE_TEST test %d\n",ret);
-#endif
         }
         break;
     }

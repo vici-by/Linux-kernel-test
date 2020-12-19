@@ -3,7 +3,7 @@
     > Author: baiy
     > Mail: baiyang0223@163.com 
     > Created Time: 2020-10-21-09:33:13
-    > Func: 
+    > Func: 测试使用CBDMA进行数据传输
  ************************************************************************/
 #define pr_fmt(fmt)  "[%s:%d] " fmt, __func__, __LINE__
 
@@ -34,18 +34,34 @@
 #include <linux/slab.h>
 
 #include <linux/iommu.h>
-#include <linux/msi.h>
-#include <linux/mm.h>
-#include <linux/random.h>
 
+// test dma
+#include <linux/delay.h>
+#include <linux/dma-mapping.h>
+#include <linux/dmaengine.h>
+#include <linux/freezer.h>
+#include <linux/kthread.h>
+#include <linux/sched/task.h>
+#include <linux/moduleparam.h>
+#include <linux/random.h>
+#include <linux/slab.h>
+#include <linux/wait.h>
+unsigned long s_vaddr;
+unsigned long d_vaddr;
+dma_addr_t s_baddr;
+dma_addr_t d_baddr;
+
+struct dma_chan * dma_chan;
+struct dma_device	*dma_dev;
+struct dma_async_tx_descriptor *desc;
+struct dma_slave_config dma_config;
+dma_cookie_t cookie;
+dma_cap_mask_t mask;
+struct dma_tx_state state;
+enum dma_status st;
 
 
 #define DEV_NAME "PCIE_DEMO"
-
-
-
-// #define OPEN_SRIOV
-#define OPEN_MSI
 
 
 #define IOC_MAGIC  'p'
@@ -53,7 +69,13 @@
 #define PCIE_DEMO_DUMP_RESOURCE     _IO(IOC_MAGIC, 1)
 #define PCIE_DEMO_READ_BAR          _IO(IOC_MAGIC, 2)
 #define PCIE_DEMO_WRITE_BAR         _IO(IOC_MAGIC, 3)
-#define PCIE_BAR_STABLE_TEST        _IO(IOC_MAGIC, 4)
+#define PCIE_DEMO_HDMA_READ_BAR     _IO(IOC_MAGIC, 4) // host dma
+#define PCIE_DEMO_HDMA_WRITE_BAR    _IO(IOC_MAGIC, 5)
+#define PCIE_DEMO_EDMA_READ_BAR     _IO(IOC_MAGIC, 6) // device dma
+#define PCIE_DEMO_EDMA_WRITE_BAR    _IO(IOC_MAGIC, 7)
+#define PCIE_CBDMA_DDR_2_DDR        _IO(IOC_MAGIC, 8)
+#define PCIE_CBDMA_DDR_2_BAR        _IO(IOC_MAGIC, 9)
+
 
 
 
@@ -83,11 +105,11 @@ struct pcie_demo_data {
     struct pci_demo_bar bar[DEVICE_COUNT_RESOURCE];
 #ifdef CONFIG_PCI_MSI
     atomic64_t irq_nums;
-    struct irq_domain *dom;
 #endif
 };
 
 struct pcie_demo_data  * pcie_data;
+
 
 
 static ssize_t pcie_demo_read (struct file * filp, char __user * buf, size_t size, loff_t * offset)
@@ -102,20 +124,22 @@ static ssize_t pcie_demo_write (struct file * filp, const char __user * buf, siz
 
 
 
+static void test_dma_cb(void *arg)
+{
+    pr_info("transmit once cb\n");
+}
+
 struct pci_demo_opt {
     unsigned long barnum;
     unsigned long len;
-    unsigned long addr; // count
+    unsigned long addr;
     unsigned long offset;
 };
 static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long args)
 {
     char * tmpbuf;
-    char * tmpbuf2;
-    unsigned long cnt;
     unsigned long loop;
     unsigned long val;
-    int flag;
     int barnum;
     struct pci_demo_opt user_opt;
     struct pci_demo_opt * opt;
@@ -123,13 +147,19 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
     struct resource * r;
     struct pci_dev *pdev;
     struct pcie_demo_data *pdata;
+    struct device * dev;
 
 
     pdata = (struct pcie_demo_data *)filp->private_data;
 
     pdev  = pdata->pcidev;
-    copy_from_user(&user_opt, (void*)args, sizeof(struct pci_demo_opt));
-    opt = &user_opt;
+
+    dev = &(pdev->dev);
+   
+    if(args){
+        copy_from_user(&user_opt, (void*)args, sizeof(struct pci_demo_opt));
+        opt = &user_opt;
+    }
     switch(cmd){
         case PCIE_DEMO_READ_CONFIG:
             tmpbuf = kmalloc(0x40, GFP_KERNEL);
@@ -220,38 +250,211 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                 }
             }
             break;
-        case PCIE_BAR_STABLE_TEST:
-            pbar = &(pdata->bar[opt->barnum]);
-            if(pbar->virt_addr == NULL) {
-                pr_err("Is not a IO/MEMORY BAR");
-                return -EINVAL;
+        case PCIE_DEMO_HDMA_READ_BAR:
+        case PCIE_DEMO_HDMA_WRITE_BAR:
+        case PCIE_DEMO_EDMA_READ_BAR:
+        case PCIE_DEMO_EDMA_WRITE_BAR:
+            break;
+        case PCIE_CBDMA_DDR_2_DDR: //  单纯测试CBDMA的DDR到DDR功能
+
+            // 1.申请源Buffer和目标Buffer，获取总线地址
+#ifdef DMA_SINGLE
+            s_vaddr = __get_free_pages(GFP_KERNEL,get_order(1024));
+            d_vaddr = __get_free_pages(GFP_KERNEL,get_order(1024));
+            if(s_vaddr == 0 || d_vaddr == 0){
+                goto err2;
             }
-            opt->len = round_up(opt->len, PAGE_SIZE);
-            pr_info("offset is %ld, len is %ld\n",opt->offset,opt->len);
-            tmpbuf = (void *)__get_free_page(GFP_KERNEL);
-            tmpbuf2 = (void *)__get_free_page(GFP_KERNEL);
-            if(!tmpbuf || !tmpbuf2){
-                pr_err("short of memory");
-                return -ENOMEM;
-            }
-            for(cnt=0;cnt<opt->addr;++cnt){
-                for(loop = 0; loop < opt->len; loop+=PAGE_SIZE){
-                    memset(tmpbuf2,0,PAGE_SIZE);
-                    get_random_bytes_wait(tmpbuf,PAGE_SIZE);
-                    memcpy_toio(pbar->virt_addr +  opt->offset + loop,tmpbuf,PAGE_SIZE);
-                    memcpy_fromio(tmpbuf2,pbar->virt_addr +  opt->offset + loop,PAGE_SIZE);
-                    if(memcmp(tmpbuf,tmpbuf2,PAGE_SIZE)){
-                        pr_info("[bar %ld offset %lu count %ld] test FAILED\n",opt->barnum,loop+opt->offset,cnt);
-                        break;
-                    } else {
-                        pr_info("[bar %ld offset %lu count %ld] test OK\n",opt->barnum,loop+opt->offset,cnt);
-                    }
+            s_baddr = dma_map_single(dev,(void*)s_vaddr,1024, DMA_BIDIRECTIONAL);
+            d_baddr = dma_map_single(dev,(void*)d_vaddr,1024, DMA_BIDIRECTIONAL);
+            pr_info("map dma buffer OK, s_v=%pK,s_b=%llx,d_v=%pK,d_b=%llx\n", (void *)s_vaddr,s_baddr,(void *)d_vaddr,d_baddr);
+        
+#else
+            s_vaddr = (unsigned long)dma_alloc_coherent(dev,1024,&s_baddr, GFP_KERNEL);
+            d_vaddr = (unsigned long)dma_alloc_coherent(dev,1024,&d_baddr, GFP_KERNEL);
+            if(s_vaddr == 0 || d_vaddr == 0){  
+                pr_info("Alloc s_vaddr or d_vaddr buffer failed\n");
+                goto err2;
+            } 
+            pr_info("coherent dma buffer OK, s_v=%pK,s_b=%llx,d_v=%pK,d_b=%llx\n", \
+                    (void *)s_vaddr,s_baddr,(void *)d_vaddr,d_baddr);
+#endif
+            memset((void*)s_vaddr,0x5A,1024);
+            memset((void*)d_vaddr,0x0,1024);
+
+            // 2.申请Dma通道,随便哪一个都可以
+            dma_cap_zero(mask);
+            dma_cap_set(DMA_MEMCPY, mask);
+            dma_chan = dma_request_channel(mask, NULL, NULL);
+            if(!dma_chan){
+                pr_err("dma request failed\n");
+                goto err2;
+            }  else {
+                dma_dev = dma_chan->device;
+                pr_info("dma %s,Support %u count ",dma_chan_name(dma_chan),dma_dev->chancnt);
+                if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask)) {
+                    pr_info("\tSupport DMA_MEMCPY");
                 }
-                if(loop < opt->len)
-                    break;
+        
+                if (dma_has_cap(DMA_MEMSET, dma_dev->cap_mask)) {
+                    pr_info("\tSupport DMA_MEMSET");
+                }
+                pr_info("dma dev name is %s,config is %pK,tx status %pK\n",\
+                    dma_dev->dev->init_name,dma_dev->device_config,dma_dev->device_tx_status);
             }
-            free_page((unsigned long)tmpbuf);
-            free_page((unsigned long)tmpbuf2);
+
+            
+#if 0       // not supported
+            pr_info("Start config dma\n");
+            dma_config.direction = DMA_MEM_TO_MEM;
+            dma_config.src_addr = s_baddr;
+            dma_config.dst_addr = d_baddr;
+            dma_config.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+            dma_config.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+            dma_config.src_maxburst = 1024;
+            dma_config.dst_maxburst = 1024;
+            dma_config.device_fc = false;
+            dmaengine_slave_config(dma_chan, &dma_config);
+        
+            pr_info("Start prep dma\n");
+            desc = dmaengine_prep_dma_cyclic(dma_chan, s_baddr, 0x1024, 0x1024, DMA_MEM_TO_MEM,DMA_PREP_INTERRUPT );
+#endif
+            desc = dmaengine_prep_dma_memcpy(dma_chan,
+                                     d_baddr, s_baddr, 1024, DMA_CTRL_ACK | DMA_PREP_INTERRUPT);
+        
+            pr_info("Start  dma\n");
+            desc->callback = test_dma_cb;
+            desc->callback_param = NULL;
+            cookie = dmaengine_submit(desc);
+        
+            loop = 3;
+            while(loop) {
+                st = dmaengine_tx_status(dma_chan,cookie,&state);
+                pr_info("st is %d\n", st);
+                if(st == DMA_COMPLETE)
+                    break;
+                msleep(10);
+                --loop;
+            }
+            if(memcmp((void*)s_vaddr,(void*)d_vaddr, 1024)){
+                pr_err("dma transmit failed");
+            } else {
+                pr_err("dma transmit OK");
+            }
+
+        	if(!dma_chan){
+        		dma_release_channel(dma_chan); 
+        		dma_chan = NULL;
+            }
+err2:
+#ifdef DMA_SINGLE
+            if(s_vaddr) {
+                dma_unmap_single(dev,s_vaddr,1024, DMA_BIDIRECTIONAL);
+                free_pages(s_vaddr, get_order(1024));
+            }
+            if(d_vaddr) {
+                dma_unmap_single(dev,d_vaddr,1024, DMA_BIDIRECTIONAL);
+                free_pages(d_vaddr, get_order(1024));
+            }
+#else
+            if(s_vaddr)
+                dma_free_coherent(dev, 1024, (void *)s_vaddr, s_baddr);
+            if(d_vaddr)
+                dma_free_coherent(dev, 1024, (void *)d_vaddr, d_baddr);
+#endif
+        	s_vaddr = 0;
+        	d_vaddr = 0;
+
+
+            break;
+        case PCIE_CBDMA_DDR_2_BAR:
+            pbar = &(pdata->bar[2]);
+            s_vaddr = __get_free_pages(GFP_KERNEL,get_order(1024));
+            d_vaddr = (unsigned long)pbar->virt_addr;
+            if(s_vaddr == 0 || d_vaddr == 0){
+                goto err3;
+            }
+            s_baddr = dma_map_single(dev,(void*)s_vaddr,1024, DMA_BIDIRECTIONAL);
+            d_baddr = dma_map_single(dev,(void*)d_vaddr,1024, DMA_BIDIRECTIONAL);  // ??? pbar->start可以不
+            pr_info("map dma buffer OK, s_v=%pK,s_b=%llx,d_v=%pK,d_b=%llx\n", \
+                (void *)s_vaddr,s_baddr,(void *)d_vaddr,d_baddr);
+            memset((void*)s_vaddr,0x5A,1024);
+            memset((void*)d_vaddr,0x0,1024);
+
+            // 2.申请Dma通道,随便哪一个都可以
+            dma_cap_zero(mask);
+            dma_cap_set(DMA_MEMCPY, mask);
+            dma_chan = dma_request_channel(mask, NULL, NULL);
+            if(!dma_chan){
+                pr_err("dma request failed\n");
+                goto err2;
+            }  else {
+                dma_dev = dma_chan->device;
+                pr_info("dma %s,Support %u count ",dma_chan_name(dma_chan),dma_dev->chancnt);
+                if (dma_has_cap(DMA_MEMCPY, dma_dev->cap_mask)) {
+                    pr_info("\tSupport DMA_MEMCPY");
+                }
+        
+                if (dma_has_cap(DMA_MEMSET, dma_dev->cap_mask)) {
+                    pr_info("\tSupport DMA_MEMSET");
+                }
+                pr_info("dma dev name is %s,config is %pK,tx status %pK\n",\
+                    dma_dev->dev->init_name,dma_dev->device_config,dma_dev->device_tx_status);
+            }
+
+            
+#if 0       // not supported
+            pr_info("Start config dma\n");
+            dma_config.direction = DMA_MEM_TO_MEM;
+            dma_config.src_addr = s_baddr;
+            dma_config.dst_addr = d_baddr;
+            dma_config.src_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+            dma_config.dst_addr_width = DMA_SLAVE_BUSWIDTH_1_BYTE;
+            dma_config.src_maxburst = 1024;
+            dma_config.dst_maxburst = 1024;
+            dma_config.device_fc = false;
+            dmaengine_slave_config(dma_chan, &dma_config);
+        
+            pr_info("Start prep dma\n");
+            desc = dmaengine_prep_dma_cyclic(dma_chan, s_baddr, 0x1024, 0x1024, DMA_MEM_TO_MEM,DMA_PREP_INTERRUPT );
+#endif
+            desc = dmaengine_prep_dma_memcpy(dma_chan,
+                                     d_baddr, s_baddr, 1024, DMA_CTRL_ACK | DMA_PREP_INTERRUPT);
+        
+            pr_info("Start  dma\n");
+            desc->callback = test_dma_cb;
+            desc->callback_param = NULL;
+            cookie = dmaengine_submit(desc);
+        
+            loop = 3;
+            while(loop) {
+                st = dmaengine_tx_status(dma_chan,cookie,&state);
+                pr_info("st is %d\n", st);
+                if(st == DMA_COMPLETE)
+                    break;
+                msleep(10);
+                --loop;
+            }
+            if(memcmp((void*)s_vaddr,(void*)d_vaddr, 1024)){
+                pr_err("dma transmit failed");
+            } else {
+                pr_err("dma transmit OK");
+            }
+            if(!dma_chan){
+                dma_release_channel(dma_chan); 
+                dma_chan = NULL;
+            }
+err3:
+
+            if(s_vaddr) {
+                dma_unmap_single(dev,s_vaddr,1024, DMA_BIDIRECTIONAL);
+                free_pages(s_vaddr, get_order(1024));
+            }
+            if(d_vaddr) {
+                dma_unmap_single(dev,d_vaddr,1024, DMA_BIDIRECTIONAL);
+            }
+            s_vaddr = 0;
+            d_vaddr = 0;
+
             break;
         default:
             pr_err("Not support command");
@@ -288,19 +491,6 @@ static struct miscdevice pcie_demo_drv = {
     .fops  = &pcie_demo_fops,
 };
 
-#ifdef CONFIG_PCI_MSI
-
-static irqreturn_t demo_pci_msi_isr(int irq, void * data)
-{
-    struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
-
-    atomic64_inc(&(pdata->irq_nums));
-    pr_info("recv irq-%llu", atomic64_read(&(pdata->irq_nums)));
-
-    return IRQ_HANDLED;
-}
-
-#endif
 
 int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -314,14 +504,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     struct device * dev;
 
 
-
     struct iommu_group *group = NULL;
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    int pos = 0;
-    u16 num_vfs = 0;
-#endif
-#endif
+
     pr_info("prbe [E]\n");
     dev = &(pdev->dev);
 
@@ -335,28 +519,6 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     dev_set_drvdata(dev, pdata);
     pdata->pcidev = pdev;
     pbar = pdata->bar;
-
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV 
-    /* Get number of subvnics */
-    pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
-    if (pos) {
-        pci_read_config_word(pdev, pos + PCI_SRIOV_TOTAL_VF, &num_vfs);
-        if (num_vfs) {
-            err = pci_enable_sriov(pdev, num_vfs);
-            if (err) {
-                pr_err("SRIOV enable failed, aborting."
-                    " pci_enable_sriov() returned %d\n",
-                    err);
-                err = -1;
-                goto err_sriov;
-            }
-            pdata->num_vfs = num_vfs;
-            pdata->priv_flags |= DEMO_SRIOV_ENABLED;
-        }
-    }
-#endif
-#endif
 
     /* Enable PCIE device */
     if (pci_enable_device(pdev)){
@@ -378,8 +540,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     r = pdev->resource;
 
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
-        printk("resource: start:%#llx,end:%#llx,name:%s,flags:%#lx,desc:%#lx\n",
-                        r->start,r->end,r->name,r->flags,r->desc);
+        printk("resource: %pR\n",r);
         r++;
     }
 
@@ -391,79 +552,16 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
             pbar[loop].virt_addr = pci_iomap(pdev, loop, pbar[loop].size);
         }
     }
-#ifdef OPEN_MSI
-#ifdef CONFIG_PCI_MSI
-    do{
-        if(pdata->priv_flags & DEMO_MSI_ENABLED){
-            pr_info("MSI is enabled\n");
-            break;
-        }
 
-        atomic64_set(&(pdata->irq_nums), 0);
-        /* Enable MSI/MSI-X */
-        err = pci_alloc_irq_vectors(pdev, 1,1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
-        if (err < 0) {
-            pr_err( "Request for msi vectors failed,not support msi\n");
-            break;
-        }
-
-        // pdata->dom = pci_msi_get_device_domain(pdev);
-        pdata->dom = dev->msi_domain;
-        if(pdata->dom){
-            pr_err("pdve irq_domain name is %s\n",pdata->dom->name);
-        } else {
-            pr_err("pdev irq_domain is NULL\n");
-        }
-        
-        /* Register mailbox interrupt handlers */
-        err = request_irq(pci_irq_vector(pdev, 0),
-                  demo_pci_msi_isr, 0, DEV_NAME, pdata);
-        if (err){
-            pr_err("Not Support MSI interrupt\n");
-            pci_free_irq_vectors(pdev);
-        }
-        pdata->priv_flags |= DEMO_MSI_ENABLED;
-        pr_info("MSI  enabled\n");
-        break;
-    }while(1);
-#endif
-#endif
-
-#if 0
-#define TEST_IOMMU_GROUP 
-#ifdef TEST_IOMMU_GROUP
-
-    for (bus = pdev->bus; !pci_is_root_bus(bus); bus = bus->parent) {
-        pr_info("Current bus num is %d\n", bus->number);
-        if (!bus->self)
-            continue;
-
-
-        pdev = bus->self;
-
-        group = iommu_group_get(&pdev->dev);
-        if (group) {
-            pr_info("Find iommu groub \n");
-            break;
-        }
-        
-    }
-#endif
-#endif
     pr_info("prbe [X]\n");
     return 0;
+
+
 
     pci_release_regions (pdev);
 err_regions:
     pci_disable_device (pdev);
 err_enable:
-#ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-    }
-#endif
-err_sriov:
     dev_set_drvdata(dev, NULL);
     kfree(pcie_data);
     pcie_data = NULL;
@@ -478,37 +576,36 @@ void demo_pcie_remove(struct pci_dev *pdev)
     struct device * dev;
     int loop = 0;
     struct pcie_demo_data *pdata;
+    dev = &(pdev->dev);
 
     pr_info("remove [E]\n");
+
+	if(!dma_chan){
+		dma_release_channel(dma_chan); 
+		dma_chan = NULL;
+    }
+#ifdef DMA_SINGLE
+    if(s_vaddr) {
+        dma_unmap_single(dev,s_vaddr,1024, DMA_BIDIRECTIONAL);
+        free_pages(s_vaddr, get_order(1024));
+    }
+    if(d_vaddr) {
+        dma_unmap_single(dev,d_vaddr,1024, DMA_BIDIRECTIONAL);
+        free_pages(d_vaddr, get_order(1024));
+    }
+#else
+    if(s_vaddr)
+        dma_free_coherent(dev, 1024, (void *)s_vaddr, s_baddr);
+    if(d_vaddr)
+        dma_free_coherent(dev, 1024, (void *)d_vaddr, d_baddr);
+#endif
+	s_vaddr = 0;
+	d_vaddr = 0;
 
     dev = &(pdev->dev);
     pdata = (struct pcie_demo_data *)dev_get_drvdata(dev);
 
-#ifdef OPEN_MSI
-#ifdef CONFIG_PCI_MSI
-    do{
-        if(!(pdata->priv_flags & DEMO_MSI_ENABLED)) {
-            pr_info("MSI is not enabled\n");
-            break;
-        }
 
-        free_irq(pci_irq_vector(pdev, 0), pdata);
-        pci_free_irq_vectors(pdev);
-        pdata->priv_flags &= ~DEMO_MSI_ENABLED;
-        atomic64_set(&(pdata->irq_nums), 0);
-        break;
-    }while(1);
-#endif
-#endif
-
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-    }
-#endif
-#endif
     pbar = pdata->bar;
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
         if(pbar[loop].virt_addr)  {
@@ -526,56 +623,11 @@ void demo_pcie_remove(struct pci_dev *pdev)
     pr_info("remove [X]\n");
 }
 
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
-{
-    struct device * dev;
-    struct pcie_demo_data *pdata;
-    u16 num_vfs = 0;
-    int pos = 0;
-    int err = 0;
 
-    pr_info("sriov config [E]\n");
-
-    dev = &(pdev->dev);
-    pdata = (struct pcie_demo_data *)dev_get_drvdata(dev);
-
-    if(numvfs > 0) {
-        /* Get number of subvnics */
-        pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
-        if (pos) {
-            pci_read_config_word(pdev, pos + PCI_SRIOV_TOTAL_VF, &num_vfs);
-            if (num_vfs) {
-                err = pci_enable_sriov(pdev, num_vfs);
-                if (err) {
-                    pr_err("SRIOV enable failed, aborting."
-                        " pci_enable_sriov() returned %d\n",
-                        err);
-                    return -1;
-                }
-                pdata->num_vfs = num_vfs;
-                pdata->priv_flags |= DEMO_SRIOV_ENABLED;
-            }
-        }
-
-    } else {
-        if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-            pci_disable_sriov(pdev);
-            pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-        }
-    }
-    pr_info("sriov config [X]\n");
-
-    return 0;
-}
-#endif
-#endif
 
 
 static struct pci_device_id demo_pcie_table[] = {
     {PCI_DEVICE(PCI_VENDOR_PF_ID_DEMO,PCI_DEVICE_PF_ID_DEMO), },
-    {PCI_DEVICE(PCI_VENDOR_VF_ID_DEMO,PCI_DEVICE_VF_ID_DEMO), },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, demo_pcie_table);
@@ -585,11 +637,6 @@ static struct pci_driver  demo_pcie_driver  = {
     .id_table   = demo_pcie_table,
     .probe      = demo_pcie_probe,
     .remove     = demo_pcie_remove,
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    .sriov_configure = demo_pcie_sriov_configure,
-#endif
-#endif
 };
 
 

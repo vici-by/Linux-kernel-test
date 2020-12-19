@@ -1,0 +1,5 @@
+内核中的 dmatest.c是一个很好地param示例代码，
+源码： https://elixir.bootlin.com/linux/latest/source/drivers/dma/dmatest.c
+使用方法：https://www.kernel.org/doc/html/v4.15/driver-api/dmaengine/dmatest.html
+
+不需要去关心

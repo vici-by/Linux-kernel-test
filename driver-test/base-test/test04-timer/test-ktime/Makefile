@@ -4,13 +4,12 @@
 # kernel build system and can use its language.
 ifneq ($(KERNELRELEASE),)
     #这部分第二次执行		
-    obj-m := pcie_list.o
+    obj-m := ktimetest.o
     # Otherwise we were called directly from the command
     # line; invoke the kernel build system.			
 else				
 #这部分第一次执行
-    KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-	#KERNELDIR ?= /home/baiy/workspace/linux-git
+    KERNELDIR ?= /lib/modules/$(shell uname -r)/build				
     PWD := $(shell pwd)			
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
