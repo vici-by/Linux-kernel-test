@@ -39,6 +39,10 @@ static void rdump_pci_info(struct pci_bus * bus)
         dev = &(tmppci->dev);
         printk("devfn = %x, vendor=%x,device=%x,class=%x,subven=%x,sub_dev=%x,irq=%d\n",
             tmppci->devfn,tmppci->vendor,tmppci->device,tmppci->class,tmppci->subsystem_vendor,tmppci->subsystem_device,tmppci->irq);
+        for(loop=0;loop<DEVICE_COUNT_RESOURCE;++loop){
+            if(tmppci->resource[loop].flags & IORESOURCE_IO ||  tmppci->resource[loop].flags & IORESOURCE_MEM)
+                printk("resource %d: %pR\n",loop,&(tmppci->resource[loop]));
+        }
         #ifdef CONFIG_GENERIC_MSI_IRQ_DOMAIN
 		if(dev->msi_domain){
             pr_err("pdve irq_domain name is %s\n",dev->msi_domain->name);

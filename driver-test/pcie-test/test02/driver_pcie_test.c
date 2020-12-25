@@ -37,6 +37,10 @@
 #include <linux/msi.h>
 #include <linux/mm.h>
 #include <linux/random.h>
+#include <linux/spinlock.h>
+
+#include <linux/delay.h>
+#include <asm-generic/io.h>
 
 
 
@@ -44,7 +48,7 @@
 
 
 
-// #define OPEN_SRIOV
+#define OPEN_SRIOV
 #define OPEN_MSI
 
 
@@ -57,10 +61,13 @@
 
 
 
+#define XILINX_PCIE_TEST
+#ifdef XILINX_PCIE_TEST
 #define PCI_VENDOR_PF_ID_DEMO      0x10EE
 #define PCI_DEVICE_PF_ID_DEMO      0x9032
 #define PCI_VENDOR_VF_ID_DEMO      0x10DE
 #define PCI_DEVICE_VF_ID_DEMO      0xABCD
+#endif
 
 #define REQ_ACS_FLAGS   (PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF)
 
@@ -81,6 +88,8 @@ struct pcie_demo_data {
     unsigned int priv_flags;
     struct pci_dev * pcidev;
     struct pci_demo_bar bar[DEVICE_COUNT_RESOURCE];
+    struct mutex mlock;
+    spinlock_t slock;
 #ifdef CONFIG_PCI_MSI
     atomic64_t irq_nums;
     struct irq_domain *dom;
@@ -110,12 +119,10 @@ struct pci_demo_opt {
 };
 static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long args)
 {
+    int    ret;
     char * tmpbuf;
-    char * tmpbuf2;
-    unsigned long cnt;
     unsigned long loop;
     unsigned long val;
-    int flag;
     int barnum;
     struct pci_demo_opt user_opt;
     struct pci_demo_opt * opt;
@@ -128,8 +135,16 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
     pdata = (struct pcie_demo_data *)filp->private_data;
 
     pdev  = pdata->pcidev;
-    copy_from_user(&user_opt, (void*)args, sizeof(struct pci_demo_opt));
-    opt = &user_opt;
+
+    if(args) {
+        opt = (struct pci_demo_opt * )args;
+        ret = copy_from_user(&user_opt, (void*)args, sizeof(struct pci_demo_opt));
+        if(ret != 0){
+            pr_err("copy from user ret %d failed\n",ret);
+            return -EINVAL;
+        }
+        opt = &user_opt;
+    }
     switch(cmd){
         case PCIE_DEMO_READ_CONFIG:
             tmpbuf = kmalloc(0x40, GFP_KERNEL);
@@ -221,6 +236,13 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
             }
             break;
         case PCIE_BAR_STABLE_TEST:
+            {
+            int * pb1;
+            int * pb2;
+            char * tmpbuf2;
+            unsigned long cnt;
+            unsigned long i;
+
             pbar = &(pdata->bar[opt->barnum]);
             if(pbar->virt_addr == NULL) {
                 pr_err("Is not a IO/MEMORY BAR");
@@ -238,10 +260,22 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                 for(loop = 0; loop < opt->len; loop+=PAGE_SIZE){
                     memset(tmpbuf2,0,PAGE_SIZE);
                     get_random_bytes_wait(tmpbuf,PAGE_SIZE);
+                    #if 0
                     memcpy_toio(pbar->virt_addr +  opt->offset + loop,tmpbuf,PAGE_SIZE);
                     memcpy_fromio(tmpbuf2,pbar->virt_addr +  opt->offset + loop,PAGE_SIZE);
+                    #else
+                    pb1 = (int *)tmpbuf;
+                    pb2 = (int *)tmpbuf2;
+                    for(i=0;i<PAGE_SIZE;i+=4){
+                        iowrite32(pb1[i/4], pbar->virt_addr +  opt->offset + loop + i);
+                    }
+                    for(i=0;i<PAGE_SIZE;i+=4){
+                        pb2[i/4] = ioread32(pbar->virt_addr +  opt->offset + loop + i);
+                    }
+                    #endif
                     if(memcmp(tmpbuf,tmpbuf2,PAGE_SIZE)){
                         pr_info("[bar %ld offset %lu count %ld] test FAILED\n",opt->barnum,loop+opt->offset,cnt);
+                        pr_info("%#x-%#x\n",((int *)tmpbuf)[0], ((int *)tmpbuf2)[0]);
                         break;
                     } else {
                         pr_info("[bar %ld offset %lu count %ld] test OK\n",opt->barnum,loop+opt->offset,cnt);
@@ -252,6 +286,7 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
             }
             free_page((unsigned long)tmpbuf);
             free_page((unsigned long)tmpbuf2);
+            }
             break;
         default:
             pr_err("Not support command");
@@ -288,18 +323,22 @@ static struct miscdevice pcie_demo_drv = {
     .fops  = &pcie_demo_fops,
 };
 
+#ifdef OPEN_MSI
 #ifdef CONFIG_PCI_MSI
 
 static irqreturn_t demo_pci_msi_isr(int irq, void * data)
 {
+    unsigned long flags;
     struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
-
+    spin_lock_irqsave(&(pdata->slock), flags);
     atomic64_inc(&(pdata->irq_nums));
-    pr_info("recv irq-%llu", atomic64_read(&(pdata->irq_nums)));
+    pr_info("recv irq-%lu", atomic64_read(&(pdata->irq_nums)));
+    spin_unlock_irqrestore(&(pdata->slock), flags);
 
     return IRQ_HANDLED;
 }
 
+#endif
 #endif
 
 int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
@@ -322,7 +361,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     u16 num_vfs = 0;
 #endif
 #endif
-    pr_info("prbe [E]\n");
+    pr_info("prbe [E] 20201225 1109\n");
     dev = &(pdev->dev);
 
     pcie_data = kzalloc(sizeof(struct pcie_demo_data), GFP_KERNEL);
@@ -332,6 +371,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     }
     pdata = pcie_data;
 
+    mutex_init(&(pdata->mlock));
+    spin_lock_init(&(pdata->slock));
     dev_set_drvdata(dev, pdata);
     pdata->pcidev = pdev;
     pbar = pdata->bar;
@@ -351,6 +392,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
                 err = -1;
                 goto err_sriov;
             }
+            pr_err("num_vfs is %d\n",num_vfs);
             pdata->num_vfs = num_vfs;
             pdata->priv_flags |= DEMO_SRIOV_ENABLED;
         }
@@ -378,8 +420,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     r = pdev->resource;
 
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
-        printk("resource: start:%#llx,end:%#llx,name:%s,flags:%#lx,desc:%#lx\n",
-                        r->start,r->end,r->name,r->flags,r->desc);
+        printk("res:%d  %pR\n",loop,r);
         r++;
     }
 
@@ -389,6 +430,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         pbar[loop].flags = pci_resource_flags(pdev, loop);
         if(((pbar[loop].flags) & IORESOURCE_IO) || ((pbar[loop].flags) & IORESOURCE_MEM))  {
             pbar[loop].virt_addr = pci_iomap(pdev, loop, pbar[loop].size);
+            pr_info("loop:%d, base=%#llx,size=%#llx,vaddr=%pK\n",loop, pbar[loop].base_addr, \
+				pbar[loop].size, pbar[loop].virt_addr);
         }
     }
 #ifdef OPEN_MSI
@@ -399,6 +442,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
             break;
         }
 
+        //Start MSI method interrupt
+        dev_info(dev,"befor enable msi IRQ = %d\n",pdev->irq);
         atomic64_set(&(pdata->irq_nums), 0);
         /* Enable MSI/MSI-X */
         err = pci_alloc_irq_vectors(pdev, 1,1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
@@ -424,6 +469,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         }
         pdata->priv_flags |= DEMO_MSI_ENABLED;
         pr_info("MSI  enabled\n");
+        dev_info(dev,"after enable msi IRQ = %d\n",pdev->irq);
         break;
     }while(1);
 #endif
@@ -457,11 +503,13 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 err_regions:
     pci_disable_device (pdev);
 err_enable:
+#ifdef OPEN_SRIOV
 #ifdef CONFIG_PCI_IOV
     if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
         pci_disable_sriov(pdev);
         pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
     }
+#endif
 #endif
 err_sriov:
     dev_set_drvdata(dev, NULL);
@@ -554,6 +602,7 @@ static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
                         err);
                     return -1;
                 }
+                pr_err("num_vfs is %d\n",num_vfs);
                 pdata->num_vfs = num_vfs;
                 pdata->priv_flags |= DEMO_SRIOV_ENABLED;
             }

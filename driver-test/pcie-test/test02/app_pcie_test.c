@@ -139,16 +139,16 @@ int main(int argc, char * argv[])
                 barno = htoi(optarg);
             break;
             case 'l':
-                len   = htoi(optarg);
+                len   = strtoul(optarg,NULL,0);
             break;
             case 'o':
-                offset = htoi(optarg);
+                offset = strtoul(optarg,NULL,0);
             break;
             case 'v':
                 value  = htoi(optarg);
             break;
             case 'c':
-                count  = htoi(optarg);
+                count  = strtoul(optarg, NULL,0);
             break;
             case 'h':
                 app_pcie_test_help(argv[0]);

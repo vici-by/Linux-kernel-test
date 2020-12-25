@@ -9,8 +9,8 @@ ifneq ($(KERNELRELEASE),)
     # line; invoke the kernel build system.			
 else				
 #这部分第一次执行
-    KERNELDIR ?= /lib/modules/$(shell uname -r)/build
-	#KERNELDIR ?= /home/baiy/workspace/linux-git
+    #KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+	KERNELDIR ?= /home/baiy/workspace/linux-git
     PWD := $(shell pwd)			
 default:
 	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
