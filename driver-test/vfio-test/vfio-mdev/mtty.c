@@ -64,7 +64,18 @@
 #define MTTY_VFIO_PCI_OFFSET_MASK    \
 				(((u64)(1) << MTTY_VFIO_PCI_OFFSET_SHIFT) - 1)
 #define MAX_MTTYS	24
+#if 1
+#define DEBUG_REGS 1
+#define DEBUG_INTR 1
+#define DEBUG      1
+#define BY_TEST    1
 
+#endif
+#ifdef BY_TEST
+
+
+struct mdev_device *pmdev;
+#endif
 /*
  * Global Structures
  */
@@ -147,8 +158,66 @@ struct mdev_state {
 static struct mutex mdev_list_lock;
 static struct list_head mdev_devices_list;
 
+#ifdef BY_TEST
+static int mtty_trigger_interrupt(struct mdev_state *mdev_state);
+
+#define IOC_MAGIC  'm'
+#define MTTY_DEMO_WRITE      _IO(IOC_MAGIC, 0)
+static long mtty_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long args)
+{
+
+    switch(cmd){
+        case MTTY_DEMO_WRITE:
+        {
+            struct mdev_state *mdev_state;
+            unsigned int index = 0;
+            if(!pmdev){
+                pr_err("pmdev is not opened\n");
+                return -ENODEV;
+            }
+            mdev_state = mdev_get_drvdata(pmdev);
+            if (mdev_state->s[index].rxtx.count <
+                    mdev_state->s[index].max_fifo_size) {
+                mdev_state->s[index].rxtx.fifo[
+                        mdev_state->s[index].rxtx.head] = 'H';
+                mdev_state->s[index].rxtx.count++;
+                CIRCULAR_BUF_INC_IDX(mdev_state->s[index].rxtx.head);
+                mdev_state->s[index].overrun = false;
+    
+                /*
+                 * Trigger interrupt if receive data interrupt is
+                 * enabled and fifo reached trigger level
+                 */
+                if ((mdev_state->s[index].uart_reg[UART_IER] &
+                            UART_IER_RDI) &&
+                   (mdev_state->s[index].rxtx.count ==
+                        mdev_state->s[index].intr_trigger_level)) {
+                    /* trigger interrupt */
+#if defined(DEBUG_INTR)
+                    pr_err("Serial port %d: Fifo level trigger\n",
+                        index);
+#endif
+                    mtty_trigger_interrupt(mdev_state);
+                }
+            }
+            break;
+        }
+        default:
+            pr_err("Not support command");
+            return -1;
+    }
+    return 0;
+}
+
+
+#endif
+
 static const struct file_operations vd_fops = {
 	.owner          = THIS_MODULE,
+#ifdef BY_TEST
+    .unlocked_ioctl = mtty_demo_ioctl,
+    .compat_ioctl   = mtty_demo_ioctl,
+#endif
 };
 
 /* function prototypes */
@@ -209,6 +278,7 @@ static void mtty_create_config_space(struct mdev_state *mdev_state)
 	STORE_LE32((u32 *) &mdev_state->vconfig[0x2c], 0x32534348);
 
 	mdev_state->vconfig[0x34] =  0x00;   /* Cap Ptr */
+    mdev_state->vconfig[0x3c] =  0x00;   /* interrupt line */
 	mdev_state->vconfig[0x3d] =  0x01;   /* interrupt pin (INTA#) */
 
 	/* Vendor specific data */
@@ -247,12 +317,14 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 		break;
 	case 0x3c:  /* interrupt line */
 		mdev_state->vconfig[0x3c] = buf[0];
+        pr_err("Interrupt line is %d\n", buf[0]);
 		break;
 	case 0x3d:
 		/*
 		 * Interrupt Pin is hardwired to INTA.
 		 * This field is write protected by hardware
 		 */
+		pr_err("Interrupt pin  is write protected\n"); 
 		break;
 	case 0x10:  /* BAR0 */
 	case 0x14:  /* BAR1 */
@@ -267,7 +339,7 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 		}
 
 		cfg_addr = *(u32 *)buf;
-		pr_info("BAR%d addr 0x%x\n", bar_index, cfg_addr);
+		pr_err("BAR%d addr 0x%x\n", bar_index, cfg_addr);
 
 		if (cfg_addr == 0xffffffff) {
 			bar_mask = mdev_state->bar_mask[bar_index];
@@ -282,6 +354,8 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 	case 0x20:  /* BAR4 */
 		STORE_LE32(&mdev_state->vconfig[offset], 0);
 		break;
+    case 0x30: /* Option ROM*/
+        break;
 	default:
 		pr_info("PCI config write @0x%x of %d bytes not handled\n",
 			offset, count);
@@ -470,6 +544,7 @@ static void handle_bar_read(unsigned int index, struct mdev_state *mdev_state,
 		}
 
 		mutex_lock(&mdev_state->rxtx_lock);
+#if 1
 		/* return data in tx buffer */
 		if (mdev_state->s[index].rxtx.head !=
 				 mdev_state->s[index].rxtx.tail) {
@@ -477,10 +552,8 @@ static void handle_bar_read(unsigned int index, struct mdev_state *mdev_state,
 						mdev_state->s[index].rxtx.tail];
 			mdev_state->s[index].rxtx.count--;
 			CIRCULAR_BUF_INC_IDX(mdev_state->s[index].rxtx.tail);
-		}
-
-		if (mdev_state->s[index].rxtx.head ==
-				mdev_state->s[index].rxtx.tail) {
+  		}else if (mdev_state->s[index].rxtx.head ==
+			    mdev_state->s[index].rxtx.tail) {
 		/*
 		 *  Trigger interrupt if tx buffer empty interrupt is
 		 *  enabled and fifo is empty
@@ -492,6 +565,11 @@ static void handle_bar_read(unsigned int index, struct mdev_state *mdev_state,
 							 UART_IER_THRI)
 				mtty_trigger_interrupt(mdev_state);
 		}
+#else
+        memset(buf,'A',count);
+        mdev_state->s[index].rxtx.count = 0;
+        pr_err("mem buf A %d bytes\n",count);
+#endif
 		mutex_unlock(&mdev_state->rxtx_lock);
 
 		break;
@@ -653,6 +731,7 @@ static ssize_t mdev_access(struct mdev_device *mdev, u8 *buf, size_t count,
 
 	index = MTTY_VFIO_PCI_OFFSET_TO_INDEX(pos);
 	offset = pos & MTTY_VFIO_PCI_OFFSET_MASK;
+    pr_err("index is %d,offset is %lld\n",index,offset);
 	switch (index) {
 	case VFIO_PCI_CONFIG_REGION_INDEX:
 
@@ -685,6 +764,7 @@ static ssize_t mdev_access(struct mdev_device *mdev, u8 *buf, size_t count,
 			handle_bar_write(index, mdev_state, offset, buf, count);
 		} else {
 			handle_bar_read(index, mdev_state, offset, buf, count);
+
 			dump_buffer(buf, count);
 
 #if defined(DEBUG_REGS)
@@ -696,6 +776,7 @@ static ssize_t mdev_access(struct mdev_device *mdev, u8 *buf, size_t count,
 		break;
 
 	default:
+        pr_info("invaild index\n");
 		ret = -1;
 		goto accessfailed;
 	}
@@ -715,11 +796,10 @@ static int mtty_create(struct kobject *kobj, struct mdev_device *mdev)
 	char name[MTTY_STRING_LEN];
 	int nr_ports = 0, i;
 
-
 	if (!mdev)
 		return -EINVAL;
 
-    pr_info("start mtty create\n");
+    pr_err("start mtty create,kobj name is %s\n",kobj->name);  // start mtty create,kobj name is mtty-2
 	for (i = 0; i < 2; i++) {
 		snprintf(name, MTTY_STRING_LEN, "%s-%d",
 			dev_driver_string(mdev_parent_dev(mdev)), i + 1);
@@ -730,7 +810,7 @@ static int mtty_create(struct kobject *kobj, struct mdev_device *mdev)
             pr_info("mtty create %s\n",name);
         }
 	}
-
+    pr_err("mtty create name %s,nr_ports = %d\n",name,nr_ports);  // mtty create name mtty-2,nr_ports = 2
 	if (!nr_ports)
 		return -EINVAL;
 
@@ -754,7 +834,7 @@ static int mtty_create(struct kobject *kobj, struct mdev_device *mdev)
 	mdev_state->mdev = mdev;
 	mdev_set_drvdata(mdev, mdev_state);
 
-    pr_info("mtty config space\n");
+    pr_info("Start mtty config space\n");
 	mtty_create_config_space(mdev_state);
 
 	mutex_lock(&mdev_list_lock);
@@ -807,7 +887,7 @@ static ssize_t mtty_read(struct mdev_device *mdev, char __user *buf,
 {
 	unsigned int done = 0;
 	int ret;
-    pr_info("mtty_dev: %s\n", __func__);
+    pr_info("count  = %zu,ppos=%lld\n",count,*ppos);
 	while (count) {
 		size_t filled;
 
@@ -866,7 +946,7 @@ static ssize_t mtty_write(struct mdev_device *mdev, const char __user *buf,
 {
 	unsigned int done = 0;
 	int ret;
-    pr_info("mtty_dev: %s\n", __func__);
+    pr_info("count  = %zu,ppos=%lld\n",count,*ppos);
 	while (count) {
 		size_t filled;
 
@@ -1148,7 +1228,7 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	case VFIO_DEVICE_GET_INFO:
 	{
 		struct vfio_device_info info;
-        pr_info("mtty_dev: %s\n", __func__);
+        pr_info("mtty_dev: VFIO_DEVICE_GET_INFO\n");
 		minsz = offsetofend(struct vfio_device_info, num_irqs);
 
 		if (copy_from_user(&info, (void __user *)arg, minsz))
@@ -1173,7 +1253,7 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		struct vfio_region_info info;
 		u16 cap_type_id = 0;
 		void *cap_type = NULL;
-        pr_info("mtty_dev: %s\n", __func__);
+        pr_info("mtty_dev: VFIO_DEVICE_GET_REGION_INFO\n");
 		minsz = offsetofend(struct vfio_region_info, offset);
 
 		if (copy_from_user(&info, (void __user *)arg, minsz))
@@ -1186,6 +1266,8 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 					   &cap_type);
 		if (ret)
 			return ret;
+        pr_err("Get region: argsz:%#x,flags:%#x,index:%#x,size:%#llx,offset:%#llx\n",
+            info.argsz,info.flags, info.index,info.size,info.offset);
 
 		if (copy_to_user((void __user *)arg, &info, minsz))
 			return -EFAULT;
@@ -1196,7 +1278,7 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 	case VFIO_DEVICE_GET_IRQ_INFO:
 	{
 		struct vfio_irq_info info;
-        pr_info("mtty_dev: %s\n", __func__);
+        pr_info("mtty_dev: VFIO_DEVICE_GET_IRQ_INFO\n");
 		minsz = offsetofend(struct vfio_irq_info, count);
 
 		if (copy_from_user(&info, (void __user *)arg, minsz))
@@ -1209,7 +1291,8 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		ret = mtty_get_irq_info(mdev, &info);
 		if (ret)
 			return ret;
-
+        pr_err("Get IRQ: argsz:%#x,flags:%#x,index:%#x,count:%#x\n",
+            info.argsz,info.flags, info.index,info.count);
 		if (copy_to_user((void __user *)arg, &info, minsz))
 			return -EFAULT;
 
@@ -1220,7 +1303,7 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		struct vfio_irq_set hdr;
 		u8 *data = NULL, *ptr = NULL;
 		size_t data_size = 0;
-        pr_info("mtty_dev: %s\n", __func__);
+        pr_info("mtty_dev: VFIO_DEVICE_SET_IRQS\n");
 		minsz = offsetofend(struct vfio_irq_set, count);
 
 		if (copy_from_user(&hdr, (void __user *)arg, minsz))
@@ -1239,7 +1322,8 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 			if (IS_ERR(data))
 				return PTR_ERR(data);
 		}
-
+        pr_err("Set IRQ: argsz:%#x,flags:%#x,index:%#x,start:%#x,count:%#x\n",
+            hdr.argsz,hdr.flags, hdr.index, hdr.start,hdr.count);
 		ret = mtty_set_irqs(mdev, hdr.flags, hdr.index, hdr.start,
 				    hdr.count, data);
 
@@ -1247,7 +1331,7 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 		return ret;
 	}
 	case VFIO_DEVICE_RESET:
-        pr_info("mtty_dev: %s\n", __func__);
+        pr_info("mtty_dev: VFIO_DEVICE_RESET\n");
 		return mtty_reset(mdev);
 	}
 	return -ENOTTY;
@@ -1255,6 +1339,9 @@ static long mtty_ioctl(struct mdev_device *mdev, unsigned int cmd,
 
 static int mtty_open(struct mdev_device *mdev)
 {
+#ifdef BY_TEST
+    pmdev = mdev;
+#endif
 	pr_info("%s\n", __func__);
 	return 0;
 }
@@ -1443,10 +1530,12 @@ static int __init mtty_dev_init(void)
 		ret = PTR_ERR(mtty_dev.vd_class);
 		goto failed1;
 	}
-
+#ifdef BY_TEST
+    //device_create(mtty_dev.vd_class, NULL,  mtty_dev.vd_devt,NULL, MTTY_NAME);
+#endif
 	mtty_dev.dev.class = mtty_dev.vd_class;
 	mtty_dev.dev.release = mtty_device_release;
-	dev_set_name(&mtty_dev.dev, "%s", MTTY_NAME);
+	dev_set_name(&mtty_dev.dev, "%s", "testntty");
 
 	ret = device_register(&mtty_dev.dev);
 	if (ret)
@@ -1484,6 +1573,9 @@ static void __exit mtty_dev_exit(void)
 	idr_destroy(&mtty_dev.vd_idr);
 	cdev_del(&mtty_dev.vd_cdev);
 	unregister_chrdev_region(mtty_dev.vd_devt, MINORMASK + 1);
+#ifdef BY_TEST
+    //device_destroy(mtty_dev.vd_class,mtty_dev.vd_devt);
+#endif
 	class_destroy(mtty_dev.vd_class);
 	mtty_dev.vd_class = NULL;
 	pr_info("mtty_dev: Unloaded!\n");
