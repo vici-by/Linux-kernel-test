@@ -466,6 +466,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         if (err){
             pr_err("Not Support MSI interrupt\n");
             pci_free_irq_vectors(pdev);
+            break;
         }
         pdata->priv_flags |= DEMO_MSI_ENABLED;
         pr_info("MSI  enabled\n");
