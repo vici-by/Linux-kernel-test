@@ -7,3 +7,5 @@ LDFLAGS := -L  cJSON -lcjson
 
 $(dst):$(obj)
 	gcc $^ -o $@ ${CFLAGS} ${LDFLAGS}
+clean:
+	rm -rf *.o ${dst}
