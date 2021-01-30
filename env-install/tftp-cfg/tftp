@@ -1,0 +1,16 @@
+service tftp
+{
+   socket_type = dgram
+   wait = yes
+   disable = no
+   user = root
+   protocol = udp
+   server = /usr/sbin/in.tftpd
+   server_args = -s /tftpboot
+   #log_on_success += PID HOST DURATION
+   #log_on_failure += HOST
+   per_source = 11
+   cps =100 2
+   flags =IPv4
+}
+
