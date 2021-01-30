@@ -16,6 +16,8 @@ function build_soft_source() {
     cp base-env/vimrc /home/baiy/.vimrc
     cp base-env/gitconfig /home/baiy/.gitconfig
     cp base-env/gitignore /home/baiy/.gitignore
+    cp base-env/taglist.txt /usr/share/vim/vim80/doc/taglist.txt
+    cp base-env/taglist.vim /usr/share/vim/vim80/plugin/taglist.vim
     apt-get update
 }
 
