@@ -17,14 +17,15 @@
 #include <linux/uaccess.h>
 #include <linux/version.h>
 
- #include <linux/miscdevice.h>
+#include <linux/miscdevice.h>
+#include <linux/time.h>
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(3, 3, 0)
 	#include <asm/switch_to.h>
 #else
     #include <asm/system.h>
 #endif
-
+#include <linux/timekeeping.h>
 
 
 #define DEV_NAME "MISC_DEMO"
@@ -51,6 +52,30 @@ static long misc_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
 {
     switch(cmd){
     case MISC_DEMO_TEST:
+        {
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
+            struct timeval * utv = (struct timeval *)args;
+            struct timeval ktv;
+            do_gettimeofday(&ktv);
+            pr_info("User time is %ld\n", utv->tv_sec*1000000 + utv->tv_usec );
+            pr_info("Ker  time is %ld\n", ktv.tv_sec*1000000 + ktv.tv_usec );
+#else
+            struct timespec uts;
+            struct timespec64 kts;
+            ktime_t ukm;
+            ktime_t kkm;
+
+            copy_from_user(&uts, (struct timespec *)args, sizeof(struct timespec));
+            ktime_get_real_ts64(&kts);
+            printk("User sec %ld, nsec %ld\n",uts.tv_sec, uts.tv_nsec);
+            printk("KERN sec %lld, nsec %ld\n",kts.tv_sec, kts.tv_nsec);
+            printk("Current ns is %lld\n", ktime_get_real_ns());
+            //ukm = ktime_set(uts.tv_sec, uts.tv_nsec);
+            //kkm = timespec64_to_ktimekts();
+            //printf("Cost %lldns\n", ktime_to_ns(ktime_sub()));
+
+#endif
+        }
         break;
     default:
         break;

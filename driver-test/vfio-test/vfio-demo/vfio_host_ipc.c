@@ -37,6 +37,8 @@
 #include <linux/eventfd.h>
 #include <linux/version.h>
 #include "vfio_msg.h"
+#include <linux/timekeeping.h>
+
 /*
  * #defines
  */
@@ -72,12 +74,13 @@
 
 
 
-#define DEBUG       1
-#define DEBUG_REGS  1
-#define DEBUG_INTR  1
+//#define DEBUG       1
+//#define DEBUG_REGS  1
+//#define DEBUG_INTR  1
+static unsigned long long total_ns = 0;
+static int test_msg_cnt = 0;
 
-
-extern void vfio_add_msg(unsigned int channel, struct VFIO_MSG_LIST * msgl);
+// extern void vfio_add_msg(unsigned int channel, struct VFIO_MSG_LIST * msgl);
 
 
 /*
@@ -216,6 +219,7 @@ static void mtty_create_config_space(struct mdev_state *mdev_state)
 #else
 	STORE_LE32((u32 *) &mdev_state->vconfig[0x10], 0x000000);  // Memory空间
 	mdev_state->bar_mask[0] = ~(MTTY_MMIO_BAR_SIZE) + 1;       // 长度掩码空间
+    pr_info("bar 0 mask is %#x\n",mdev_state->bar_mask[0]);
 
 	if (mdev_state->nr_ports == 2) {
 		/* BAR1: IO space */
@@ -293,6 +297,7 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 		if (cfg_addr == 0xffffffff) {
 			bar_mask = mdev_state->bar_mask[bar_index];  // 和长度掩码 相与可以计算出长度
 			cfg_addr = (cfg_addr & bar_mask);
+            pr_info("!!!bar 0 mask is %#x,len is %#x\n",bar_mask, cfg_addr);
 		}
 
 		cfg_addr |= (mdev_state->vconfig[offset] & 0x3ul);  // 判断是IO空间还是内存空间
@@ -325,16 +330,13 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
     prxtx = &(mdev_state->s[index].rxtx);
 
     if(prxtx->rxcnt == 16 && prxtx->rxfifo){
-        vfio_add_msg(mdev_state->channel,( struct VFIO_MSG_LIST * )prxtx->rxfifo);
+        //vfio_add_msg(mdev_state->channel,( struct VFIO_MSG_LIST * )prxtx->rxfifo);
         prxtx->rxfifo = NULL;
         prxtx->rxcnt  = 0;
     }
 #if defined(DEBUG)
     pr_info("count is %d, rxcnt is %d\n",count, prxtx->rxcnt);
 #endif
-
-
-
 
 
     if(prxtx->rxcnt == 0 && buf[0] != 0x5A){  //  不是一个有效的数据
@@ -382,11 +384,29 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
     pr_info("recv count is %d, total count is %d\n",count,prxtx->rxcnt);
 #endif
     if(prxtx->rxcnt == 16){
+        int cnt =prxtx->rxfifo->msg.cmd;
+        unsigned long long ttm = 0;
+        unsigned long long etm = (unsigned long long )ktime_to_us(ktime_get_real());
+        unsigned long long stm = ((prxtx->rxfifo->msg.rvd << 32)& 0xFFFFFFFF00000000 ) | prxtx->rxfifo->msg.ack;
+        ttm = (prxtx->rxfifo->msg.rvd);
+        stm = ((ttm << 32)& 0xFFFFFFFF00000000 ) | (prxtx->rxfifo->msg.ack & 0xFFFFFFFF);
+        test_msg_cnt++;
+        unsigned long long ctm = etm - stm;
+        total_ns += ctm;
+        pr_info("recv cnt %d,cur cnt %d, stm %lld, etm %lld, cost %lld, per %lld\n",
+            cnt, test_msg_cnt, stm,etm,etm-stm, (total_ns / test_msg_cnt));
+
+
         #if defined(DEBUG)
         pr_info("Get a package:\n");
         #endif
+
         dump_buffer((char *)&(prxtx->rxfifo->msg), 16);
-        vfio_add_msg(mdev_state->channel,prxtx->rxfifo);
+        #if 0
+        //vfio_add_msg(mdev_state->channel,prxtx->rxfifo);
+        #else
+        kfree(prxtx->rxfifo);
+        #endif
         prxtx->rxfifo = NULL;
         prxtx->rxcnt  = 0;
     }
@@ -562,11 +582,11 @@ static int vfio_get_channel(struct mdev_device *mdev)
     guid_copy( &uuid, muuid);
 #endif
     p = uuid.b;
-    pr_info("mdev id is \n");
+    pr_cont("mdev id is :");
     for(i=0; i<16; ++i){
-        printk("%#.2x", uuid.b[i] & 0xff);
+        pr_cont("%#.2x ", uuid.b[i] & 0xff);
     }
-
+    pr_cont("\n");
     pr_info("channel is %#x\n",uuid.b[15] & 0xff );
     return uuid.b[15] & 0xff;
 }

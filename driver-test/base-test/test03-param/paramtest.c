@@ -83,6 +83,7 @@ static int paramtest_run_set(const char *val, const struct kernel_param *kp)
 
     ret = param_set_bool(val, kp);
     pr_info("pr_set_param is %d,val is %d\n",ret,*((bool *)kp->arg));
+    pr_info("val is %d\n",paramtest_run);
     paramtest_dump();
     return ret;
 }

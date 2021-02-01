@@ -24,7 +24,7 @@
 
 
 #define DECLARE_BITMAP(name,bits) unsigned long name[BITS_TO_LONGS(bits)]; \
-    __bitmap_clear(name, 0, BITS_TO_LONGS(bits) * BITS_PER_LONG );
+
 
 
 #define BIT_MASK(nr)		((1UL) << ((nr) % BITS_PER_LONG))

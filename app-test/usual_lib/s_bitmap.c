@@ -78,7 +78,7 @@ unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
                 
 
 /*
- * bitmap 查找函数，返回第一个为1的bit所在位置，或者返回size
+ * bitmap 查找函数，返回第一个为1的bit所在位置,为0返回size
  */
 unsigned long find_first_bit(const unsigned long *addr, unsigned long size)
 {

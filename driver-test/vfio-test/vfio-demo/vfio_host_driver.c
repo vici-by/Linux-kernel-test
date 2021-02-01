@@ -36,6 +36,7 @@
 #include <asm-generic/io.h>
 #include <linux/bitmap.h>
 #include <linux/kthread.h>
+#include <linux/workqueue.h>
 // #include <asm-generic/atomic64.h>
 
 #include "vfio_msg.h"
@@ -63,6 +64,7 @@ typedef struct VF_DESC_INFO{
 }VF_DESC_INFO;
 struct VF_DESC_INFO * pvf_desc_info;
 
+struct work_struct work;
 
 void vfio_add_msg(unsigned int channel, VFIO_MSG_LIST * msgl)
 {

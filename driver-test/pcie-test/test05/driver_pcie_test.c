@@ -1,9 +1,9 @@
 /*************************************************************************
     > File Name: driver_pcie_test.c
     > Author: baiy
-    > Mail: baiyang0223@163.com 
+    > Mail: baiyang0223@163.com
     > Created Time: 2020-10-21-09:33:13
-    > Func: 
+    > Func:
  ************************************************************************/
 #define pr_fmt(fmt)  "[%s:%d] " fmt, __func__, __LINE__
 
@@ -41,12 +41,12 @@
 
 #include <linux/delay.h>
 #include <asm-generic/io.h>
+#include <linux/timekeeping.h>
 
 
 #define DEV_NAME "PCIE_DEMO"
 
-#define OPEN_SRIOV
-#define OPEN_MSI
+#define OPEN_INTX
 
 #define IOC_MAGIC  'p'
 #define PCIE_DEMO_READ_CONFIG       _IO(IOC_MAGIC, 0)
@@ -60,8 +60,6 @@
 #ifdef  XILINX_PCIE_TEST
 #define PCI_VENDOR_PF_ID_DEMO      0x10EE
 #define PCI_DEVICE_PF_ID_DEMO      0x9032
-#define PCI_VENDOR_VF_ID_DEMO      0x10EE
-#define PCI_DEVICE_VF_ID_DEMO      0x9232
 #endif
 
 #define REQ_ACS_FLAGS   (PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF)
@@ -77,6 +75,7 @@ struct pci_demo_bar {
 /* priv_flags */
 #define DEMO_SRIOV_ENABLED      (1 << 0)
 #define DEMO_MSI_ENABLED        (1 << 1)
+#define DEMO_INTX_ENABLED       (1 << 2)
 
 struct pcie_demo_data {
     u16    num_vfs;
@@ -85,15 +84,80 @@ struct pcie_demo_data {
     struct pci_demo_bar bar[DEVICE_COUNT_RESOURCE];
     struct mutex mlock;
     spinlock_t slock;
-#ifdef  OPEN_MSI
-#ifdef  CONFIG_PCI_MSI
+#ifdef OPEN_INTX
+    u8    intx_line;
+    u8    intx_pin;
     atomic64_t irq_nums;
-    struct irq_domain *dom;
-#endif  //OPEN_MSI
-#endif  //CONFIG_PCI_MSI
+#endif
 };
 
 struct pcie_demo_data  * pcie_data;
+
+typedef struct VFIO_MSG{
+    unsigned int magic;     // 必须是 0x5A5AA5A5，否则无效帧;
+    unsigned int cmd;       // 命令帧, bit31==1代表命令ack报文
+    unsigned int rvd;
+    unsigned int ack;       // 如果是ack，那么返回值。如果cmd需要带参数
+}VFIO_MSG;
+
+
+ VFIO_MSG msg;
+ static int test_msg_cnt = 0;
+
+/*
+typedef unsigned short __u16;
+typedef unsigned int   __u32;
+typedef unsigned long  __u64;
+#define ___constant_swab16(x) ((__u16)(				\
+	(((__u16)(x) & (__u16)0x00ffU) << 8) |			\
+	(((__u16)(x) & (__u16)0xff00U) >> 8)))
+
+#define ___constant_swab32(x) ((__u32)(				\
+	(((__u32)(x) & (__u32)0x000000ffUL) << 24) |		\
+	(((__u32)(x) & (__u32)0x0000ff00UL) <<  8) |		\
+	(((__u32)(x) & (__u32)0x00ff0000UL) >>  8) |		\
+	(((__u32)(x) & (__u32)0xff000000UL) >> 24)))
+
+#define ___constant_swab64(x) ((__u64)(				\
+	(((__u64)(x) & (__u64)0x00000000000000ffULL) << 56) |	\
+	(((__u64)(x) & (__u64)0x000000000000ff00ULL) << 40) |	\
+	(((__u64)(x) & (__u64)0x0000000000ff0000ULL) << 24) |	\
+	(((__u64)(x) & (__u64)0x00000000ff000000ULL) <<  8) |	\
+	(((__u64)(x) & (__u64)0x000000ff00000000ULL) >>  8) |	\
+	(((__u64)(x) & (__u64)0x0000ff0000000000ULL) >> 24) |	\
+	(((__u64)(x) & (__u64)0x00ff000000000000ULL) >> 40) |	\
+	(((__u64)(x) & (__u64)0xff00000000000000ULL) >> 56)))
+*/
+
+ssize_t pcie_transmit_msg(unsigned int cmd)
+{
+    unsigned long loop;
+    unsigned long long stm;
+    unsigned long long ttm = 0;
+    unsigned long long ctm = 0;
+
+
+    msg.magic = 0xFF88A55A;
+    msg.cmd   = test_msg_cnt+1;
+    stm = (unsigned long long )ktime_to_us(ktime_get_real());
+
+    msg.rvd   = stm >> 32 & 0xFFFFFFFF;
+    msg.ack   = stm & 0xFFFFFFFF;
+    ctm = msg.rvd;
+
+    ttm = ((ctm << 32) & 0xFFFFFFFF00000000) | msg.ack & 0xFFFFFFFF;
+
+    iowrite32(msg.magic, pcie_data->bar[0].virt_addr + 0);
+    iowrite32(msg.cmd, pcie_data->bar[0].virt_addr + 4);
+    // TBD ??? 为啥不能分一次发送？？？ 对面一次最多接收八个字节？？？
+    iowrite32(msg.rvd, pcie_data->bar[0].virt_addr + 0);
+    iowrite32(msg.ack, pcie_data->bar[0].virt_addr + 0x04);
+    pr_info("cnt is %d,magic %#x,cmd:%d,rvd:%u,ack:%u, ns is %lld,ttm is %lld\n",
+        test_msg_cnt,msg.magic,msg.cmd, msg.rvd, msg.ack,stm,ttm);;
+
+    return loop;
+}
+EXPORT_SYMBOL(pcie_transmit_msg);
 
 
 static ssize_t pcie_demo_read (struct file * filp, char __user * buf, size_t size, loff_t * offset)
@@ -120,6 +184,7 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
     char * tmpbuf;
     unsigned long loop;
     unsigned long val;
+    unsigned short bar_cmd;
     int barnum;
     struct pci_demo_opt user_opt;
     struct pci_demo_opt * opt;
@@ -222,11 +287,15 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                 kfree(tmpbuf);
                 return -1;
             }
+            pci_read_config_word(pdev,0x34,&bar_cmd);
+            pr_info("cmd is %d\n",bar_cmd);
             if(((pbar->flags) & IORESOURCE_IO)) {
+                pr_info("bar%ld io write size %ld\n",opt->barnum, opt->len);
                 for(loop=0; loop<opt->len; loop+=4){
                     iowrite32(((unsigned int*)tmpbuf)[loop] , pbar[loop].virt_addr + opt->offset + loop);
                 }
             }else if(((pbar->flags) & IORESOURCE_MEM)) {
+                pr_info("bar%ld memory write size %ld\n",opt->barnum, opt->len);
                 for(loop=0; loop<opt->len; ++loop){
                     iowrite8((tmpbuf)[loop] & 0xff, pbar->virt_addr + opt->offset + loop);
                 }
@@ -259,21 +328,11 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                     memset(tmpbuf2,0,PAGE_SIZE);
                     get_random_bytes_wait(tmpbuf,PAGE_SIZE);
 
-                    #if 1
                     pr_info("Start mem to io\n");
                     memcpy_toio(pbar->virt_addr +  opt->offset + loop,tmpbuf,PAGE_SIZE);
                     pr_info("Start mem from io\n");
                     memcpy_fromio(tmpbuf2,pbar->virt_addr +  opt->offset + loop,PAGE_SIZE);
-                    #else
-                    pb1 = (int *)tmpbuf;
-                    pb2 = (int *)tmpbuf2;
-                    for(i=0;i<PAGE_SIZE;i+=4){
-                        iowrite32(pb1[i/4], pbar->virt_addr +  opt->offset + loop + i);
-                    }
-                    for(i=0;i<PAGE_SIZE;i+=4){
-                        pb2[i/4] = ioread32(pbar->virt_addr +  opt->offset + loop + i);
-                    }
-                    #endif
+
                     if(memcmp(tmpbuf,tmpbuf2,PAGE_SIZE)){
                         pr_info("[bar %ld offset %lu count %ld] test FAILED\n",opt->barnum,loop+opt->offset,cnt);
                         pr_info("%#x-%#x\n",((int *)tmpbuf)[0], ((int *)tmpbuf2)[0]);
@@ -323,11 +382,8 @@ static struct miscdevice pcie_demo_drv = {
     .name  = DEV_NAME,
     .fops  = &pcie_demo_fops,
 };
-
-#ifdef OPEN_MSI
-#ifdef CONFIG_PCI_MSI
-
-static irqreturn_t demo_pci_msi_isr(int irq, void * data)
+#ifdef OPEN_INTX
+static irqreturn_t demo_pci_intx_isr(int irq, void * data)
 {
     unsigned long flags;
     struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
@@ -336,80 +392,86 @@ static irqreturn_t demo_pci_msi_isr(int irq, void * data)
     pr_info("recv irq-%llu", atomic64_read(&(pdata->irq_nums)));
     spin_unlock_irqrestore(&(pdata->slock), flags);
 
+    // TBD:wake read
+
     return IRQ_HANDLED;
 }
+#endif
 
-#endif
-#endif
+
+struct test_info {
+    struct timer_list test_timer;
+};
+struct test_info tinfo;
+static unsigned char c_tmp;
+typedef enum vfio_cmd{
+    CMD_CHANNEL_STAT,
+    CMD_CHANNEL_START,
+    CMD_CHANNEL_STOP,
+    CMD_CHANNEL_PULSE,
+    CMD_CHANNEL_CONTINUE,
+}vfio_cmd;
+
+static void test_timer(struct timer_list *t)
+{
+	struct test_info *ts = from_timer(ts, t, test_timer);
+
+    if(c_tmp == 0){
+        pcie_transmit_msg(CMD_CHANNEL_START);
+        c_tmp = 1;
+    } else {
+        pcie_transmit_msg(CMD_CHANNEL_STOP);
+        c_tmp = 0;
+    }
+
+    if(test_msg_cnt ++ < 10000)
+	    mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(500));
+
+}
+
 
 int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
     struct pci_bus *bus;
     struct pci_ops *ops;
     struct resource * r;
-    struct pcie_demo_data *pdata;
     int loop = 0;
     int err = -EINVAL;
     struct pci_demo_bar * pbar;
     struct device * dev;
+    unsigned short cfg_cmd;
+    unsigned short cfg_stat;
 
-    struct iommu_group *group = NULL;
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    int pos = 0;
-    u16 num_vfs = 0;
-#endif
-#endif
-    pr_info("prbe [E] 20201225 1109\n");
-
-
-
+    pr_info("prbe [E] 20210120\n");
     dev = &(pdev->dev);
-
     pcie_data = kzalloc(sizeof(struct pcie_demo_data), GFP_KERNEL);
     if(!pcie_data){
         pr_err("failed alloc pcie_demo_data\n");
         return (-1);
     }
-    pdata = pcie_data;
 
-    mutex_init(&(pdata->mlock));
-    spin_lock_init(&(pdata->slock));
-    dev_set_drvdata(dev, pdata);
-    pdata->pcidev = pdev;
-    pbar = pdata->bar;
+    mutex_init(&(pcie_data->mlock));
+    spin_lock_init(&(pcie_data->slock));
+    dev_set_drvdata(dev, pcie_data);
+    pcie_data->pcidev = pdev;
+    pbar = pcie_data->bar;
 
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV 
-    /* Get number of subvnics */
-    pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
-    if (pos) {
-        pci_read_config_word(pdev, pos + PCI_SRIOV_TOTAL_VF, &num_vfs);
-        if (num_vfs) {
-            // err = pci_enable_sriov(pdev, num_vfs);
-            err = pci_enable_sriov(pdev, num_vfs > 1 ? 1 : 1);
-            if (err) {
-                pr_err("SRIOV enable failed, aborting."
-                    " pci_enable_sriov() returned %d\n",
-                    err);
-                err = -1;
-                goto err_sriov;
-            }
-            pr_err("num_vfs is %d\n",num_vfs);
-            pdata->num_vfs = num_vfs;
-            pdata->priv_flags |= DEMO_SRIOV_ENABLED;
-        }
-    }
+#ifdef OPEN_INTX
+    pci_read_config_byte(pdev,0x3c, &pcie_data->intx_line);
+    pci_read_config_byte(pdev,0x3e, &pcie_data->intx_pin);
+    atomic64_set(&(pcie_data->irq_nums), 0);
 #endif
-#endif
+    pci_read_config_word(pdev,0x04,&cfg_cmd);
+    pci_read_config_word(pdev,0x04,&cfg_stat);
 
+    pr_info("before enable:cfg cmd is %#x, cfg_stat is %#x\n",cfg_cmd, cfg_stat);
     /* Enable PCIE device */
     if (pci_enable_device(pdev)){
         pr_err("pci_enable_device failed\n");
         err = -EIO;
         goto err_enable;
     }
-
+    pr_info("end enable:cfg cmd is %#x, cfg_stat is %#x\n",cfg_cmd, cfg_stat);
     err = pci_request_regions(pdev, "demo_pci_test");
     if(err < 0){
         printk("ERROR: pci_enable_device\n");
@@ -421,7 +483,6 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     ops = bus->ops;
 
     r = pdev->resource;
-
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
         printk("res:%d  %pR\n",loop,r);
         r++;
@@ -437,69 +498,24 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 				pbar[loop].size, pbar[loop].virt_addr);
         }
     }
-#ifdef OPEN_MSI
-#ifdef CONFIG_PCI_MSI
-    do{
-        if(pdata->priv_flags & DEMO_MSI_ENABLED){
-            pr_info("MSI is enabled\n");
-            break;
-        }
 
-        //Start MSI method interrupt
-        dev_info(dev,"befor enable msi IRQ = %d\n",pdev->irq);
-        atomic64_set(&(pdata->irq_nums), 0);
-        /* Enable MSI/MSI-X */
-        err = pci_alloc_irq_vectors(pdev, 1,1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
-        if (err < 0) {
-            pr_err( "Request for msi vectors failed,not support msi\n");
-            break;
-        }
-
-        // pdata->dom = pci_msi_get_device_domain(pdev);
-        pdata->dom = dev->msi_domain;
-        if(pdata->dom){
-            pr_err("pdve irq_domain name is %s\n",pdata->dom->name);
+#ifdef OPEN_INTX
+    if(!(pcie_data->priv_flags & DEMO_INTX_ENABLED)) {
+    	err = devm_request_irq(dev, pcie_data->intx_line, demo_pci_intx_isr,
+		       IRQF_SHARED | IRQF_NO_THREAD,
+		       "vfio-pcie", pcie_data);
+    	if(err){
+            pr_info("Request irq failed\n");
         } else {
-            pr_err("pdev irq_domain is NULL\n");
+            pcie_data->priv_flags |= DEMO_INTX_ENABLED;
+            pr_info("Request irq OK\n");
         }
-        
-        /* Register mailbox interrupt handlers */
-        err = request_irq(pci_irq_vector(pdev, 0),
-                  demo_pci_msi_isr, 0, DEV_NAME, pdata);
-        if (err){
-            pr_err("Not Support MSI interrupt\n");
-            pci_free_irq_vectors(pdev);
-            break;
-        }
-        pdata->priv_flags |= DEMO_MSI_ENABLED;
-        pr_info("MSI  enabled\n");
-        dev_info(dev,"after enable msi IRQ = %d\n",pdev->irq);
-        break;
-    }while(1);
-#endif
-#endif
-
-#if 0
-#define TEST_IOMMU_GROUP 
-#ifdef TEST_IOMMU_GROUP
-
-    for (bus = pdev->bus; !pci_is_root_bus(bus); bus = bus->parent) {
-        pr_info("Current bus num is %d\n", bus->number);
-        if (!bus->self)
-            continue;
-
-
-        pdev = bus->self;
-
-        group = iommu_group_get(&pdev->dev);
-        if (group) {
-            pr_info("Find iommu groub \n");
-            break;
-        }
-        
     }
 #endif
-#endif
+
+    timer_setup(&tinfo.test_timer, test_timer, 0);
+	mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(5000));
+
     pr_info("prbe [X]\n");
     return 0;
 
@@ -507,15 +523,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 err_regions:
     pci_disable_device (pdev);
 err_enable:
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-    }
-#endif
-#endif
-err_sriov:
+
     dev_set_drvdata(dev, NULL);
     kfree(pcie_data);
     pcie_data = NULL;
@@ -532,34 +540,16 @@ void demo_pcie_remove(struct pci_dev *pdev)
     struct pcie_demo_data *pdata;
 
     pr_info("remove [E]\n");
+    del_timer_sync(&tinfo.test_timer);
 
     dev = &(pdev->dev);
     pdata = (struct pcie_demo_data *)dev_get_drvdata(dev);
 
-#ifdef OPEN_MSI
-#ifdef CONFIG_PCI_MSI
-    do{
-        if(!(pdata->priv_flags & DEMO_MSI_ENABLED)) {
-            pr_info("MSI is not enabled\n");
-            break;
-        }
-
-        free_irq(pci_irq_vector(pdev, 0), pdata);
-        pci_free_irq_vectors(pdev);
-        pdata->priv_flags &= ~DEMO_MSI_ENABLED;
-        atomic64_set(&(pdata->irq_nums), 0);
-        break;
-    }while(1);
-#endif
-#endif
-
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
+#ifdef OPEN_INTX
+    if(pcie_data->priv_flags & DEMO_INTX_ENABLED) {
+        // void devm_free_irq(struct device *dev, unsigned int irq, void *dev_id)
+        devm_free_irq(dev, pdata->intx_line, pdata);
     }
-#endif
 #endif
     pbar = pdata->bar;
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
@@ -578,58 +568,9 @@ void demo_pcie_remove(struct pci_dev *pdev)
     pr_info("remove [X]\n");
 }
 
-#ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV
-static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
-{
-    struct device * dev;
-    struct pcie_demo_data *pdata;
-    u16 num_vfs = 0;
-    int pos = 0;
-    int err = 0;
-
-    pr_info("sriov config [E]\n");
-
-    dev = &(pdev->dev);
-    pdata = (struct pcie_demo_data *)dev_get_drvdata(dev);
-
-    if(numvfs > 0) {
-        /* Get number of subvnics */
-        pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
-        if (pos) {
-            pci_read_config_word(pdev, pos + PCI_SRIOV_TOTAL_VF, &num_vfs);
-            if (num_vfs) {
-                err = pci_enable_sriov(pdev, num_vfs);
-                if (err) {
-                    pr_err("SRIOV enable failed, aborting."
-                        " pci_enable_sriov() returned %d\n",
-                        err);
-                    return -1;
-                }
-                pr_err("num_vfs is %d\n",num_vfs);
-                pdata->num_vfs = num_vfs;
-                pdata->priv_flags |= DEMO_SRIOV_ENABLED;
-            }
-        }
-
-    } else {
-        if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-            pci_disable_sriov(pdev);
-            pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-        }
-    }
-    pr_info("sriov config [X]\n");
-
-    return 0;
-}
-#endif  //CONFIG_PCI_IOV
-#endif  //OPEN_SRIOV
-
-
 
 static struct pci_device_id demo_pcie_table[] = {
     {PCI_DEVICE(PCI_VENDOR_PF_ID_DEMO,PCI_DEVICE_PF_ID_DEMO), },
-    {PCI_DEVICE(PCI_VENDOR_VF_ID_DEMO,PCI_DEVICE_VF_ID_DEMO), },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, demo_pcie_table);
@@ -639,11 +580,6 @@ static struct pci_driver  demo_pcie_driver  = {
     .id_table   = demo_pcie_table,
     .probe      = demo_pcie_probe,
     .remove     = demo_pcie_remove,
-#ifdef  OPEN_SRIOV
-#ifdef  CONFIG_PCI_IOV
-    .sriov_configure = demo_pcie_sriov_configure,
-#endif  //CONFIG_PCI_IOV
-#endif  //OPEN_SRIOV
 };
 
 
@@ -659,6 +595,7 @@ static void __exit pcie_demo_exit(void)
     pr_info("exit [E]\n");
     misc_deregister(&pcie_demo_drv);
     pci_unregister_driver(&demo_pcie_driver);
+    pr_info("exit [X]\n");
 }
 
 module_init(pcie_demo_init);

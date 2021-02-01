@@ -47,7 +47,7 @@
 
 #define MTTY_CONFIG_SPACE_SIZE  0xff
 #define MTTY_IO_BAR_SIZE        0x8
-#define MTTY_MMIO_BAR_SIZE      0x100000
+#define MTTY_MMIO_BAR_SIZE      0x2048
 
 #define STORE_LE16(addr, val)   (*(u16 *)addr = val)
 #define STORE_LE32(addr, val)   (*(u32 *)addr = val)
@@ -71,9 +71,8 @@
 #define BY_TEST    1
 
 #endif
+
 #ifdef BY_TEST
-
-
 struct mdev_device *pmdev;
 #endif
 /*
@@ -183,7 +182,7 @@ static long mtty_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                 mdev_state->s[index].rxtx.count++;
                 CIRCULAR_BUF_INC_IDX(mdev_state->s[index].rxtx.head);
                 mdev_state->s[index].overrun = false;
-    
+
                 /*
                  * Trigger interrupt if receive data interrupt is
                  * enabled and fifo reached trigger level
@@ -324,7 +323,7 @@ static void handle_pci_cfg_write(struct mdev_state *mdev_state, u16 offset,
 		 * Interrupt Pin is hardwired to INTA.
 		 * This field is write protected by hardware
 		 */
-		pr_err("Interrupt pin  is write protected\n"); 
+		pr_err("Interrupt pin  is write protected\n");
 		break;
 	case 0x10:  /* BAR0 */
 	case 0x14:  /* BAR1 */

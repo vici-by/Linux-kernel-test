@@ -2,3 +2,5 @@ LINUX 下PCIE基础调试工具
     pciutils: lspci源码，基于git@github.com:pciutils/pciutils.git  master 分支 5bdf63b 提交
     test01: 遍历下当前总线上所有PCI/PCIE设备，打印下资源信息
     test02: 写一个最简单的demo，来测试pcie基础功能
+
+    test05: 写一个简单的pcie驱动，主要为了测试vfio-pci功能
