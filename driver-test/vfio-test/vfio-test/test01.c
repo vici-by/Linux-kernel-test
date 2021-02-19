@@ -25,6 +25,7 @@ struct vfio_group_status {
 };
 */
 struct vfio_group_status group_status;
+struct vfio_device_info  device_info;
 
 int main(int argc, char * argv[])
 {
