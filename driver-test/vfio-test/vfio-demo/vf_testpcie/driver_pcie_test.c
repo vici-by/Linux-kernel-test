@@ -61,8 +61,6 @@
 #define PCI_DEVICE_PF_ID_DEMO      0x9032
 #endif
 
-#define REQ_ACS_FLAGS   (PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF)
-
 struct pci_demo_bar {
     resource_size_t base_addr;
     void __iomem *virt_addr;
@@ -91,7 +89,6 @@ struct pcie_demo_data {
 };
 
 struct pcie_demo_data  * pcie_data;
-
 typedef struct VFIO_MSG{
     unsigned int magic;     // 必须是 0x5A5AA5A5，否则无效帧;
     unsigned int cmd;       // 命令帧, bit31==1代表命令ack报文
@@ -127,11 +124,23 @@ typedef unsigned long  __u64;
 	(((__u64)(x) & (__u64)0xff00000000000000ULL) >> 56)))
 */
 
+
+static unsigned int count = 0;
+static unsigned long long stm = 0;  // 开始时间
+static unsigned long long etm = 0;  // 结束时间
+static unsigned long long ctm = 0;  // 结束时间
+static unsigned long long ttm = 0;  // 总共花费时间
+
+// static unsigned long long stm = (unsigned long long )ktime_to_us(ktime_get_real());
+// static unsigned long long etm = (unsigned long long )ktime_to_us(ktime_get_real());
+
+
+
 ssize_t pcie_transmit_msg(unsigned int cmd)
 {
     unsigned long loop;
 
-
+#if 0
     msg.magic = 0xFF88A55A;
     msg.cmd   = cmd;
     msg.rvd   = 0x11223344;
@@ -146,218 +155,45 @@ ssize_t pcie_transmit_msg(unsigned int cmd)
     pr_info("write %#x\n", msg.rvd);
     iowrite32(msg.ack, pcie_data->bar[0].virt_addr + 0x04);
     pr_info("write %#x\n", msg.ack);
-
+#else
+    stm = (unsigned long long )ktime_to_us(ktime_get_real());
+    iowrite32(count, pcie_data->bar[0].virt_addr + 0);
+#endif
     return loop;
 }
 EXPORT_SYMBOL(pcie_transmit_msg);
+
 
 
 static ssize_t pcie_demo_read (struct file * filp, char __user * buf, size_t size, loff_t * offset)
 {
     return 0;
 }
+
 static ssize_t pcie_demo_write (struct file * filp, const char __user * buf, size_t size, loff_t * offset)
 {
 
     return 0;
 }
 
-
-
-struct pci_demo_opt {
-    unsigned long barnum;
-    unsigned long len;
-    unsigned long addr; // count
-    unsigned long offset;
-};
 static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long args)
 {
-    int    ret;
-    char * tmpbuf;
-    unsigned long loop;
-    unsigned long val;
-    unsigned short bar_cmd;
-    int barnum;
-    struct pci_demo_opt user_opt;
-    struct pci_demo_opt * opt;
-    struct pci_demo_bar * pbar;
-    struct resource * r;
-    struct pci_dev *pdev;
-    struct pcie_demo_data *pdata;
 
-
-    pdata = (struct pcie_demo_data *)filp->private_data;
-
-    pdev  = pdata->pcidev;
-
-    if(args) {
-        opt = (struct pci_demo_opt * )args;
-        ret = copy_from_user(&user_opt, (void*)args, sizeof(struct pci_demo_opt));
-        if(ret != 0){
-            pr_err("copy from user ret %d failed\n",ret);
-            return -EINVAL;
-        }
-        opt = &user_opt;
-    }
-    switch(cmd){
-        case PCIE_DEMO_READ_CONFIG:
-            tmpbuf = kmalloc(0x40, GFP_KERNEL);
-            if(!tmpbuf){
-                pr_err("short of memory");
-                return -ENOMEM;
-            }
-            memset(tmpbuf,0,0x40);
-            for(loop=0; loop<0x40; ++loop){
-                pci_read_config_byte(pdev,loop,tmpbuf+loop);
-            }
-            if(copy_to_user(( void*)opt->addr, tmpbuf,0x40) != 0){
-                pr_err("copy to user failed\n");
-                kfree(tmpbuf);
-                return -1;
-            }
-            kfree(tmpbuf);
-            break;
-        case PCIE_DEMO_DUMP_RESOURCE:
-            r = pdev->resource;
-            for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
-                printk("resource: start:%#llx,end:%#llx,name:%s,flags:%#lx,desc:%#lx\n",
-                                r->start,r->end,r->name,r->flags,r->desc);
-                r++;
-            }
-            break;
-        case PCIE_DEMO_READ_BAR:
-            barnum = opt->barnum;
-            pbar = &(pdata->bar[opt->barnum]);
-            if(pbar->virt_addr == NULL) {
-                pr_err("Is not a IO/MEMORY BAR");
-                return -EINVAL;
-            }
-            tmpbuf = kmalloc(opt->len, GFP_KERNEL);
-            if(!tmpbuf){
-                pr_err("short of memory");
-                return -ENOMEM;
-            }
-            memset(tmpbuf,0,opt->len);
-
-            if(((pbar->flags) & IORESOURCE_IO)) {
-                for(loop=0; loop<opt->len; loop+=4){
-                    ((unsigned int*)tmpbuf)[loop] = ioread32(pbar[loop].virt_addr + opt->offset + loop);
-                }
-                val = copy_to_user((void*)opt->addr, tmpbuf,opt->len*4);
-                if(val != 0){
-                    pr_err("copy to user failed\n");
-                    kfree(tmpbuf);
-                    return -1;
-                }
-            }else if(((pbar->flags) & IORESOURCE_MEM)) {
-                for(loop=0; loop<opt->len; ++loop){
-                    tmpbuf[loop] = ioread8(pbar->virt_addr + opt->offset + loop);
-                }
-                val = copy_to_user((void *)opt->addr, tmpbuf,opt->len);
-                if(val != 0){
-                    pr_err("copy to user failed\n");
-                    kfree(tmpbuf);
-                    return -1;
-                }
-            }
-            break;
-        case PCIE_DEMO_WRITE_BAR:
-            pbar = &(pdata->bar[opt->barnum]);
-            if(pbar->virt_addr == NULL) {
-                pr_err("Is not a IO/MEMORY BAR");
-                return -EINVAL;
-            }
-            tmpbuf = kmalloc(opt->len, GFP_KERNEL);
-            if(!tmpbuf){
-                pr_err("short of memory");
-                return -ENOMEM;
-            }
-            memset(tmpbuf,0,opt->len);
-            val = copy_from_user(tmpbuf, (void *)opt->addr, opt->len);
-            if(val != 0){
-                pr_err("copy to user failed\n");
-                kfree(tmpbuf);
-                return -1;
-            }
-            pci_read_config_word(pdev,0x34,&bar_cmd);
-            pr_info("cmd is %d\n",bar_cmd);
-            if(((pbar->flags) & IORESOURCE_IO)) {
-                pr_info("bar%ld io write size %ld\n",opt->barnum, opt->len);
-                for(loop=0; loop<opt->len; loop+=4){
-                    iowrite32(((unsigned int*)tmpbuf)[loop] , pbar[loop].virt_addr + opt->offset + loop);
-                }
-            }else if(((pbar->flags) & IORESOURCE_MEM)) {
-                pr_info("bar%ld memory write size %ld\n",opt->barnum, opt->len);
-                for(loop=0; loop<opt->len; ++loop){
-                    iowrite8((tmpbuf)[loop] & 0xff, pbar->virt_addr + opt->offset + loop);
-                }
-            }
-            break;
-        case PCIE_BAR_STABLE_TEST:
-            {
-            int * pb1;
-            int * pb2;
-            char * tmpbuf2;
-            unsigned long cnt;
-            unsigned long i;
-
-            pbar = &(pdata->bar[opt->barnum]);
-            if(pbar->virt_addr == NULL) {
-                pr_err("Is not a IO/MEMORY BAR");
-                return -EINVAL;
-            }
-            opt->len = round_up(opt->len, PAGE_SIZE);
-            pr_info("offset is %ld, len is %ld,retry is %ld\n",opt->offset,opt->len,opt->addr);
-            tmpbuf = (void *)__get_free_page(GFP_KERNEL);
-            tmpbuf2 = (void *)__get_free_page(GFP_KERNEL);
-            if(!tmpbuf || !tmpbuf2){
-                pr_err("short of memory");
-                return -ENOMEM;
-            }
-            for(cnt=0;cnt<opt->addr;++cnt){
-                for(loop = 0; loop < opt->len; loop+=PAGE_SIZE){
-                    pr_info("loop is %ld\n",loop);
-                    memset(tmpbuf2,0,PAGE_SIZE);
-                    get_random_bytes_wait(tmpbuf,PAGE_SIZE);
-
-                    pr_info("Start mem to io\n");
-                    memcpy_toio(pbar->virt_addr +  opt->offset + loop,tmpbuf,PAGE_SIZE);
-                    pr_info("Start mem from io\n");
-                    memcpy_fromio(tmpbuf2,pbar->virt_addr +  opt->offset + loop,PAGE_SIZE);
-
-                    if(memcmp(tmpbuf,tmpbuf2,PAGE_SIZE)){
-                        pr_info("[bar %ld offset %lu count %ld] test FAILED\n",opt->barnum,loop+opt->offset,cnt);
-                        pr_info("%#x-%#x\n",((int *)tmpbuf)[0], ((int *)tmpbuf2)[0]);
-                        break;
-                    } else {
-                        pr_info("[bar %ld offset %lu count %ld] test OK\n",opt->barnum,loop+opt->offset,cnt);
-                    }
-                }
-                if(loop < opt->len)
-                    break;
-            }
-            free_page((unsigned long)tmpbuf);
-            free_page((unsigned long)tmpbuf2);
-            }
-            break;
-        default:
-            pr_err("Not support command");
-            return -1;
-    }
     return 0;
 }
+
 static int pcie_demo_open (struct inode * inode, struct file * filp)
 {
     struct pcie_demo_data *pdata = pcie_data;
     filp->private_data = pdata;
     return 0;
 }
+
 static int pcie_demo_release (struct inode * inode, struct file * filp)
 {
     filp->private_data = NULL;
     return 0;
 }
-
 
 static struct file_operations pcie_demo_fops = {
     .owner = THIS_MODULE,
@@ -374,17 +210,24 @@ static struct miscdevice pcie_demo_drv = {
     .name  = DEV_NAME,
     .fops  = &pcie_demo_fops,
 };
+
+
 #ifdef OPEN_INTX
 static irqreturn_t demo_pci_intx_isr(int irq, void * data)
 {
     unsigned long flags;
     struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
     spin_lock_irqsave(&(pdata->slock), flags);
+    etm = (unsigned long long )ktime_to_us(ktime_get_real());
+    ctm = etm - stm;
+    ttm += ctm;
     atomic64_inc(&(pdata->irq_nums));
     pr_info("recv irq-%lu", atomic64_read(&(pdata->irq_nums)));
+    pr_info("Count is %#lx, stm %#llx, ttm %#llx, Current cost %#llx,Per cost %#llx\n",
+            count, stm,etm,ctm,ttm/count);
+    mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(5000));
     spin_unlock_irqrestore(&(pdata->slock), flags);
 
-    // TBD:wake read
 
     return IRQ_HANDLED;
 }
@@ -408,6 +251,7 @@ static void test_timer(struct timer_list *t)
 {
 	struct test_info *ts = from_timer(ts, t, test_timer);
 
+#if 0
     if(c_tmp == 0){
         pcie_transmit_msg(CMD_CHANNEL_START);
         c_tmp = 1;
@@ -416,6 +260,9 @@ static void test_timer(struct timer_list *t)
         c_tmp = 0;
     }
 	mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(5000));
+#else
+    pcie_transmit_msg(0);
+#endif
 }
 
 
