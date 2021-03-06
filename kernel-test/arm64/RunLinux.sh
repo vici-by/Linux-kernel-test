@@ -83,61 +83,51 @@ do_umount()
 do_arm64env()
 {
 
+    arm64dir=$(pwd)
+	echo "check cross-compile-aarch64"
+	which aarch64-none-linux-gnu-gcc
+	if [ "$?" != 0  ]
+	then
+        # retry
+	    export "PATH=${arm64dir}/tools/gcc-arm-9.2-2019.12-x86_64-aarch64-none-linux-gnu/bin/:$PATH"
+        which aarch64-none-linux-gnu-gcc
+        if [ "$?" != 0  ]
+        then
+            echo "cross-compile install failed"
+            return -1
+        fi
+	fi
+
 	echo "check qemu-system-aarch64"
 	which qemu-system-aarch64
 	if [ "$?" != 0  ]
 	then
-        mkdir qemu-aarch64-bin && cd ../
-		mkdir qemu-aarch64-bin  && qdir=$(realpath qemu-aarch64-bin)
-		./configure --prefix=${qdir} --target-list=aarch64-softmmu && make && make install
-		echo "PATH=${qdir}/bin:\$PATH" >> ~/.bashrc
-		cd ${rootdir}
-
-		which qemu-system-aarch64
-		if [ "$?" != 0  ]
-		then
-			echo "qemu install failed"
-			return -1
-		fi
+        # retry 
+        export "PATH=${arm64dir}/qemu-aarch64-bin/bin:$PATH" 
+        which qemu-system-aarch64
+        if [ "$?" != 0  ]
+        then
+            echo "qemu install failed"
+            return -1
+        fi
 	fi
 
-
-	echo "Install corss-compile"
-	which aarch64-none-linux-gnu-gcc
-	if [ "$?" != 0  ]
-	then
-		mkdir -p tools && cd tools
-		wget wget https://developer.arm.com/-/media/Files/downloads/gnu-a/9.2-2019.12/binrel/gcc-arm-9.2-2019.12-x86_64-aarch64-none-linux-gnu.tar.xz
-		xz -d gcc-arm-9.2-2019.12-x86_64-aarch64-none-linux-gnu.tar.xz
-		tar -xf gcc-arm-9.2-2019.12-x86_64-aarch64-none-linux-gnu.tar
-		echo "PATH=${rootdir}/tools/gcc-arm-9.2-2019.12-x86_64-aarch64-none-linux-gnu/bin/:\$PATH" >> ~/.bashrc
-		cd ${rootdir}
-
-		which aarch64-none-linux-gnu-gcc
-		if [ "$?" != 0  ]
-		then
-			echo "qemu install failed"
-			return -1
-		fi
-	fi
-
-	echo "Install ATF"
-    if [ ! -e "arm-trusted-firmware" ]
-    then
-        git clone https://github.com/ARM-software/arm-trusted-firmware.git
-	fi
-
-	echo "Build ATF"
-	echo "Build uboot"
+	echo "Not Support Build ATF"
+	echo "Not Support Build uboot"
 	echo "Build linux"
+    cp build_linux.sh linux
+    cp build_linux.sh linux  && cd linux && ./build_linux.sh init
 
 	echo "Build busybox"
 	cp build_busybox.sh busybox && chmod 777 busybox/build_busybox.sh
 	cp make_rootfs.sh busybox  && chmod 777 busybox/make_rootfs.sh
 	cp busybox_config busybox/.config
 
-	dd if=/dev/zero of=./Freeze.img bs=1M count=${FREEZE_SIZE}
-    mkfs.ext4 -E lazy_itable_init=1,lazy_journal_init=1 -F ./Freeze.img
+    if [ ! -f Freeze.img ]
+    then
+        dd if=/dev/zero of=./Freeze.img bs=1M count=${FREEZE_SIZE}
+        mkfs.ext4 -E lazy_itable_init=1,lazy_journal_init=1 -F ./Freeze.img
+    fi
 }
 
 

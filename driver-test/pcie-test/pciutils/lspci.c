@@ -1025,7 +1025,7 @@ main(int argc, char **argv)
 
   while ((i = getopt(argc, argv, options)) != -1)
     switch (i)
-      {
+	{
       case 'n':
 	pacc->numeric_ids++;
 	break;
@@ -1109,22 +1109,22 @@ main(int argc, char **argv)
 
   pci_init(pacc);
   if (opt_map_mode)
-    {
+  {
       if (need_topology)
 	die("Bus mapping mode does not recognize bus topology");
       map_the_bus();
-    }
+  }
   else
-    {
+  {
       scan_devices();
       sort_them();
       if (need_topology)
-	grow_tree();
+	    grow_tree();
       if (opt_tree)
-	show_forest(opt_filter ? &filter : NULL);
+	    show_forest(opt_filter ? &filter : NULL);
       else
-	show();
-    }
+	    show();
+  }
   show_kernel_cleanup();
   pci_cleanup(pacc);
 

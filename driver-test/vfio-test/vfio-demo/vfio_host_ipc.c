@@ -339,6 +339,8 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
 #endif
 
 
+
+#if 0
     if(prxtx->rxcnt == 0 && buf[0] != 0x5A){  //  不是一个有效的数据
         pr_err("Invaild magic[%#x], drop it\n",buf[0]);
         mutex_unlock(&mdev_state->rxtx_lock);
@@ -410,6 +412,15 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
         prxtx->rxfifo = NULL;
         prxtx->rxcnt  = 0;
     }
+#else
+
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
+    mtty_trigger_interrupt(mdev_uuid(mdev_state->mdev));
+#else
+    mtty_trigger_interrupt(mdev_state);
+#endif
+
+#endif
 	mutex_unlock(&mdev_state->rxtx_lock);
 }
 
