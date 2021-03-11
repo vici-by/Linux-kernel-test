@@ -77,8 +77,11 @@
 //#define DEBUG       1
 //#define DEBUG_REGS  1
 //#define DEBUG_INTR  1
+#define TEST_EVENTFD
+
 static unsigned long long total_ns = 0;
 static int test_msg_cnt = 0;
+static char sync_cnt = 0;
 
 // extern void vfio_add_msg(unsigned int channel, struct VFIO_MSG_LIST * msgl);
 
@@ -336,11 +339,9 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
     }
 #if defined(DEBUG)
     pr_info("count is %d, rxcnt is %d\n",count, prxtx->rxcnt);
-#endif
+#endif  // DEBUG
 
 
-
-#if 0
     if(prxtx->rxcnt == 0 && buf[0] != 0x5A){  //  不是一个有效的数据
         pr_err("Invaild magic[%#x], drop it\n",buf[0]);
         mutex_unlock(&mdev_state->rxtx_lock);
@@ -377,27 +378,22 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
 
 #if defined(DEBUG)
     pr_info("count is %d, rxcnt is %d\n",count, prxtx->rxcnt);
-#endif
+#endif  // DEBUG
+
 
     msg = (char *)&(prxtx->rxfifo->msg);
     memcpy(msg + prxtx->rxcnt, buf, count );
     prxtx->rxcnt += count;
+
 #if defined(DEBUG)
     pr_info("recv count is %d, total count is %d\n",count,prxtx->rxcnt);
-#endif
-    if(prxtx->rxcnt == 16){
-        int cnt =prxtx->rxfifo->msg.cmd;
-        unsigned long long ttm = 0;
-        unsigned long long etm = (unsigned long long )ktime_to_us(ktime_get_real());
-        unsigned long long stm = ((prxtx->rxfifo->msg.rvd << 32)& 0xFFFFFFFF00000000 ) | prxtx->rxfifo->msg.ack;
-        ttm = (prxtx->rxfifo->msg.rvd);
-        stm = ((ttm << 32)& 0xFFFFFFFF00000000 ) | (prxtx->rxfifo->msg.ack & 0xFFFFFFFF);
-        test_msg_cnt++;
-        unsigned long long ctm = etm - stm;
-        total_ns += ctm;
-        pr_info("recv cnt %d,cur cnt %d, stm %lld, etm %lld, cost %lld, per %lld\n",
-            cnt, test_msg_cnt, stm,etm,etm-stm, (total_ns / test_msg_cnt));
+#endif  // DEBUG
 
+
+
+
+    if(prxtx->rxcnt == 16){
+        int cnt = prxtx->rxfifo->msg.cmd;
 
         #if defined(DEBUG)
         pr_info("Get a package:\n");
@@ -409,18 +405,20 @@ static void handle_bar_write(unsigned int index, struct mdev_state *mdev_state,
         #else
         kfree(prxtx->rxfifo);
         #endif
+
+#ifdef TEST_EVENTFD
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
+	    mtty_trigger_interrupt(mdev_uuid(mdev_state->mdev));
+#else
+	    mtty_trigger_interrupt(mdev_state);
+#endif // LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
+#endif // TEST_EVENTFD
+
         prxtx->rxfifo = NULL;
         prxtx->rxcnt  = 0;
     }
-#else
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,4,0)
-    mtty_trigger_interrupt(mdev_uuid(mdev_state->mdev));
-#else
-    mtty_trigger_interrupt(mdev_state);
-#endif
 
-#endif
 	mutex_unlock(&mdev_state->rxtx_lock);
 }
 
@@ -428,6 +426,15 @@ static void handle_bar_read(unsigned int index, struct mdev_state *mdev_state,
 			    u16 offset, u8 *buf, u32 count)
 {
 	/* Handle read requests by guest */
+    struct rxtx   *prxtx;
+    VFIO_MSG_LIST *msgl;
+    char      *msg;
+	u8 data = *buf;
+
+    mutex_lock(&mdev_state->rxtx_lock);
+    // pr_info("handle bar read is %x\n",test_msg_cnt);
+    memcpy(buf, &test_msg_cnt, 4 );
+    mutex_unlock(&mdev_state->rxtx_lock);
 }
 
 static void mdev_read_base(struct mdev_state *mdev_state)
@@ -848,6 +855,9 @@ static int mtty_set_irqs(struct mdev_device *mdev, uint32_t flags,
 	mdev_state = mdev_get_drvdata(mdev);
 	if (!mdev_state)
 		return -EINVAL;
+
+    pr_info("[MTTY_SET_IRQS]index is %#x, flags is %#x\n", index, flags);
+
 
 	mutex_lock(&mdev_state->ops_lock);
 	switch (index) {

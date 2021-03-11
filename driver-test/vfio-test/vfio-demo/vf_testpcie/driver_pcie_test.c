@@ -99,6 +99,20 @@ typedef struct VFIO_MSG{
 
  VFIO_MSG msg;
 
+struct test_info {
+    struct timer_list test_timer;
+};
+struct test_info tinfo;
+static unsigned char c_tmp;
+typedef enum vfio_cmd{
+    CMD_CHANNEL_STAT,
+    CMD_CHANNEL_START,
+    CMD_CHANNEL_STOP,
+    CMD_CHANNEL_PULSE,
+    CMD_CHANNEL_CONTINUE,
+}vfio_cmd;
+
+
 /*
 typedef unsigned short __u16;
 typedef unsigned int   __u32;
@@ -131,6 +145,7 @@ static unsigned long long etm = 0;  // 结束时间
 static unsigned long long ctm = 0;  // 结束时间
 static unsigned long long ttm = 0;  // 总共花费时间
 
+
 // static unsigned long long stm = (unsigned long long )ktime_to_us(ktime_get_real());
 // static unsigned long long etm = (unsigned long long )ktime_to_us(ktime_get_real());
 
@@ -138,26 +153,32 @@ static unsigned long long ttm = 0;  // 总共花费时间
 
 ssize_t pcie_transmit_msg(unsigned int cmd)
 {
-    unsigned long loop;
+    unsigned long loop = 0;
+    unsigned int tmp_cnt = 0;
 
-#if 0
+#if 1
     msg.magic = 0xFF88A55A;
     msg.cmd   = cmd;
-    msg.rvd   = 0x11223344;
-    msg.ack   = 0x55555555;
+    msg.rvd   = (int)((stm >> 32) & 0xFFFFFFFF);
+    msg.ack   = (int)(stm & 0xFFFFFFFF);
     iowrite32(msg.magic, pcie_data->bar[0].virt_addr + 0);
-    pr_info("write %#x\n", msg.magic);
     iowrite32(msg.cmd, pcie_data->bar[0].virt_addr + 4);
+	pr_info("write %#x\n", msg.magic);
     pr_info("write %#x\n", msg.cmd);
 
     // TBD ??? 为啥不能分一次发送？？？ 对面一次最多接收八个字节？？？
     iowrite32(msg.rvd, pcie_data->bar[0].virt_addr + 0);
-    pr_info("write %#x\n", msg.rvd);
     iowrite32(msg.ack, pcie_data->bar[0].virt_addr + 0x04);
+    pr_info("write %#x\n", msg.rvd);
     pr_info("write %#x\n", msg.ack);
 #else
-    stm = (unsigned long long )ktime_to_us(ktime_get_real());
+    stm = (unsigned long long )ktime_to_ns(ktime_get_real());
     iowrite32(count, pcie_data->bar[0].virt_addr + 0);
+    tmp_cnt = ioread32(pcie_data->bar[0].virt_addr + 0);
+    etm = (unsigned long long )ktime_to_ns(ktime_get_real());
+    pr_info("write cnt is %d, read is %d, cost %lld ns\n", count,tmp_cnt, etm-stm);
+    tmp_cnt = 0;
+    ++count;
 #endif
     return loop;
 }
@@ -215,17 +236,12 @@ static struct miscdevice pcie_demo_drv = {
 #ifdef OPEN_INTX
 static irqreturn_t demo_pci_intx_isr(int irq, void * data)
 {
+
     unsigned long flags;
     struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
     spin_lock_irqsave(&(pdata->slock), flags);
-    etm = (unsigned long long )ktime_to_us(ktime_get_real());
-    ctm = etm - stm;
-    ttm += ctm;
     atomic64_inc(&(pdata->irq_nums));
-    pr_info("recv irq-%lu", atomic64_read(&(pdata->irq_nums)));
-    pr_info("Count is %#lx, stm %#llx, ttm %#llx, Current cost %#llx,Per cost %#llx\n",
-            count, stm,etm,ctm,ttm/count);
-    mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(5000));
+    pr_info("recv irq-%llu", atomic64_read(&(pdata->irq_nums)));
     spin_unlock_irqrestore(&(pdata->slock), flags);
 
 
@@ -234,24 +250,12 @@ static irqreturn_t demo_pci_intx_isr(int irq, void * data)
 #endif
 
 
-struct test_info {
-    struct timer_list test_timer;
-};
-struct test_info tinfo;
-static unsigned char c_tmp;
-typedef enum vfio_cmd{
-    CMD_CHANNEL_STAT,
-    CMD_CHANNEL_START,
-    CMD_CHANNEL_STOP,
-    CMD_CHANNEL_PULSE,
-    CMD_CHANNEL_CONTINUE,
-}vfio_cmd;
+
 
 static void test_timer(struct timer_list *t)
 {
 	struct test_info *ts = from_timer(ts, t, test_timer);
 
-#if 0
     if(c_tmp == 0){
         pcie_transmit_msg(CMD_CHANNEL_START);
         c_tmp = 1;
@@ -260,9 +264,6 @@ static void test_timer(struct timer_list *t)
         c_tmp = 0;
     }
 	mod_timer(&tinfo.test_timer, jiffies+msecs_to_jiffies(5000));
-#else
-    pcie_transmit_msg(0);
-#endif
 }
 
 
@@ -337,8 +338,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 
 #ifdef OPEN_INTX
     if(!(pcie_data->priv_flags & DEMO_INTX_ENABLED)) {
-    	err = devm_request_irq(dev, pcie_data->intx_line, demo_pci_intx_isr,
-		       IRQF_SHARED | IRQF_NO_THREAD,
+    	err = devm_request_irq(dev, pdev->irq, demo_pci_intx_isr,
+		       IRQF_SHARED ,
 		       "vfio-pcie", pcie_data);
     	if(err){
             pr_info("Request irq failed\n");
