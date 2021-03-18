@@ -1,0 +1,15 @@
+[core]
+        excludesfile = /home/baiy/.gitignore
+        editor = emacs
+[user]
+        name = baiyang
+        email = baiyang0223@163.com
+[alias]
+        st = status
+        ci = commit
+        co = checkout
+        br = branch
+        lg = log --color --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+        tr = log --graph --decorate --oneline --simplify-by-decoration --all
+[color]
+        ui = true

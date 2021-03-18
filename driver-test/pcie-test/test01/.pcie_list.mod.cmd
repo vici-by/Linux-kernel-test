@@ -1,1 +1,0 @@
-cmd_/home/baiy/workspace/Linux-kernel-test/driver-test/pcie-test/test01/pcie_list.mod := { echo  /home/baiy/workspace/Linux-kernel-test/driver-test/pcie-test/test01/pcie_list.o; echo; } > /home/baiy/workspace/Linux-kernel-test/driver-test/pcie-test/test01/pcie_list.mod
