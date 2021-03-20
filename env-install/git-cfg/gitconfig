@@ -1,6 +1,6 @@
 [core]
         excludesfile = /home/baiy/.gitignore
-        editor = emacs
+	    editor = /usr/bin/vim
 [user]
         name = baiyang
         email = baiyang0223@163.com

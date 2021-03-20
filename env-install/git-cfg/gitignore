@@ -26,7 +26,7 @@ deploy_key_rsa
 *.kdev*
 cscope.*
 baiyang_build.sh
-#rootfs.cpio
+*.cpio
 image.ub
 system.dtb
 .vscode
@@ -36,3 +36,7 @@ kernel_fdt.its
 .mod.o
 .o
 .mod.cmd
+*.a
+tags
+apluscnn_model_data/*
+.gitignore
