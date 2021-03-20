@@ -6,7 +6,7 @@
     > Func: 
  ************************************************************************/
 
-#include "s_common.h"
+#include "s_util.h"
 #include "s_bitmap.h"
 
 // #define TEST_ALIGNMENT

@@ -7,7 +7,7 @@
  ************************************************************************/
 #ifndef S_BITMAP_H
 #define S_BITMAP_H
-#include "s_common.h"
+#include "s_util.h"
 
 // 向long取整，64位下是64-bits，32位是32-bits
 

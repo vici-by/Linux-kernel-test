@@ -1,3 +1,0 @@
-PCIE测试程序
-    ./app_pcie_test  [-r/-w/-s] [-b no] [-l count] [-o offset] [-c count for -s test counts] [-v value for -w test value]
-
