@@ -1,0 +1,5 @@
+first	#驱动的入口函数和出口函数
+second  #驱动模块及依赖
+third   #驱动的模块参数
+fourth  #kobject引用计数
+

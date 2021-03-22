@@ -1,0 +1,138 @@
+/ {
+    #address-cells = <1>;
+    #size-cells = <1>;
+
+    demo_level0 {
+        compatible = "simple-bus";
+        ranges = <0x0 0x3000000 0x3000>;
+        #address-cells = <1>;
+        #size-cells = <1>;
+
+        range@0 {
+            compatible = "range";
+            reg = <0x100 0x200>;
+            reg-names = "range0";
+        };
+
+        range@1 {
+            compatible = "range";
+            reg = <0x300 0x200>;
+            reg-names = "range1";
+        };
+
+        range@2 {
+            compatible = "range";
+            reg = <0x600 0x200>;
+            reg-names = "range2";
+        };
+
+        demo_level1 {
+            compatible = "simple-bus";
+            ranges = <0x0 0x1000 0x1000>;
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            range@3 {
+                compatible = "range";
+                reg = <0x100 0x200>;
+                reg-names = "range3";
+            };
+
+            demo_level1-1 {
+                compatible = "simple-bus";
+                ranges = <0x0 0x300 0x500>;
+                #address-cells = <1>;
+                #size-cells = <1>;
+
+                range@4 {
+                    compatible = "range";
+                    reg = <0x100 0x200>;
+                    reg-names = "range4";
+                };
+
+                range@5 {
+                    compatible = "range";
+                    reg = <0x300 0x100>;
+                    reg-names = "range5";
+                };
+
+                demo_level1-1-1 {
+                    compatible = "simple-bus";
+                    ranges = <0x0 0x400 0x100>;
+                    #address-cells = <1>;
+                    #size-cells = <1>;
+
+                    range@6 {
+                        compatible = "range";
+                        reg = <0x50 0x30>;
+                        reg-names = "range6";
+                    };
+
+                    demo_level1-1-1-1 {
+                        compatible = "simple-bus";
+                        ranges = <0x0 0x20 0x20>;
+                        #address-cells = <1>;
+                        #size-cells = <1>;
+
+                        range@7 {
+                            compatible = "range";
+                            reg = <0x10 0x10>;
+                            reg-names = "range7";
+                        };
+
+                        range@8 {
+                            compatible = "range";
+                            reg = <0x0 0x10>;
+                            reg-names = "range8";
+                        };
+                    };
+                };
+            };
+
+            range@9 {
+                compatible = "range";
+                reg = <0x800 0x50>;
+                reg-names = "range9";
+            };
+
+            demo_level1-2 {
+                compatible = "simple-bus";
+                ranges = <0x0 0x900 0x100>;
+                #address-cells = <1>;
+                #size-cells = <1>;
+
+                range@10 {
+                    compatible = "range";
+                    reg = <0x0 0x50>;
+                    reg-names = "range10";
+                };
+
+                demo_level1-2-1 {
+                    compatible = "simple-bus";
+                    ranges;
+                    #address-cells = <1>;
+                    #size-cells = <1>;
+
+                    range@11 {
+                        compatible = "range";
+                        reg = <0x50 0x30>;
+                        reg-names = "range11";
+                    };
+                };
+            };
+        };
+
+        demo_level2 {
+            compatible = "simple-bus";
+            ranges;
+            #address-cells = <1>;
+            #size-cells = <1>;
+
+            range@12 {
+                compatible = "range";
+                reg = <0x2000 0x1000>;
+                reg-names = "range12";
+            };
+        };
+    }
+};

@@ -1,0 +1,61 @@
+   XFsbl_Printf(DEBUG_PRINT_ALWAYS,                                                                  
+                 "Xilinx Zynq MP First Stage Boot Loader \n\r");  
+
+
+src/xfsbl_config.h
+
+/*** FSBL Debug options ***/
+#if FSBL_PRINT_VAL
+#define FSBL_PRINT
+#endif
+
+#if FSBL_DEBUG_VAL
+#define FSBL_DEBUG
+#endif
+
+#if FSBL_DEBUG_INFO_VAL
+#define FSBL_DEBUG_INFO
+#endif
+
+#if FSBL_DEBUG_DETAILED_VAL
+#define FSBL_DEBUG_DETAILED
+#endif
+
+
+
+
+
+xfsbl_main.c 
+	u32 FsblStage = XFSBL_STAGE1; 
+
+	// >>>>>> stage 1
+	case XFSBL_STAGE1:
+		FsblStatus = XFsbl_Initialize(&FsblInstance);  //
+			FsblInstancePtr->ResetReason = XFsbl_GetResetReason(); // get reset reason and run
+			XFsbl_PrintFsblBanner(); // print banner infomation
+			XFsbl_ProcessorInit(FsblInstancePtr); // PS INIT
+			XFsbl_BoardInit(); // Board Init
+			XFsbl_ResetValidation();
+
+ 		FsblStage = XFSBL_STAGE2;
+	
+	
+	// >>>>>> stage 2
+	XFsbl_BootDeviceInitAndValidate
+		 Status = XFsbl_PrimaryBootDeviceInit(FsblInstancePtr);
+
+
+
+
+XFsbl_CheckValidMemoryAddress
+
+XFsbl_ValidatePartitionHeader
+
+XFsbl_PartitionHeaderValidation
+
+
+Screen 0: minimum 320 x 200, current 1280 x 720, maximum 16384 x 16384
+DVI-I-1 disconnected (normal left inverted right x axis y axis)
+DP-1 connected primary 1280x720+0+0 (normal left inverted right x axis y axis) 597mm x 336mm
+   1280x720      59.86* 
+

@@ -1,0 +1,14 @@
+first	# 测试注册设备号
+second  # 创建一个实现读写的单个字符设备 # lseek研究 
+third   # 创建一个实现读写的多个字符设备
+fourth  # ioctl研究
+fifth	# 并发
+sixth   # 阻塞
+seventh # epoll
+eighth  # 异步IO
+ninth   # 字符设备实例一
+tenth   # 字符设备实例二
+
+
+
+

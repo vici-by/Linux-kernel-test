@@ -1,0 +1,23 @@
+/ {
+    node1 {
+        a-string--property = "A string";
+        a-string-list-property = "First string","Second string";
+        a-byte-data-property = {0x01 0x23 0x34 0x56};
+        child-node1 {
+            first-child-property;
+            second-child-property = <1>;
+            a-string-property = "Child One";
+        }
+        child-node2 {
+            first-child-property;
+            second-child-property = <2>
+            a-string-property = "Child One"
+        }
+    };
+    
+    node2 {
+        an-empty-property;
+        a-cell-property = <1 2 3 4>;
+    };
+
+};

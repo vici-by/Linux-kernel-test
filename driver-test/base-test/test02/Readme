@@ -1,0 +1,4 @@
+first   # 测试printk打印输出
+second  # 测试proc调试-proc_create
+third   # 测试proc调试-proc_create_data
+fourth  # 测试BUG_ON和WARN_ON,oops

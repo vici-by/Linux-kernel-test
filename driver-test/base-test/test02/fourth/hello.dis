@@ -1,0 +1,27 @@
+
+hello.o：     文件格式 elf64-x86-64
+
+
+Disassembly of section .init.text:
+
+0000000000000000 <init_module>:
+   0:	55                   	push   %rbp
+  ac:	地址 0x00000000000000ac 越界。
+
+
+Disassembly of section .exit.text:
+
+000000000000019e <cleanup_module>:
+ 19e:	55                   	push   %rbp
+ 19f:	b9 16 00 00 00       	mov    $0x16,%ecx
+ 1a4:	48 c7 c2 00 00 00 00 	mov    $0x0,%rdx
+ 1ab:	48 c7 c6 00 00 00 00 	mov    $0x0,%rsi
+ 1b2:	48 c7 c7 00 00 00 00 	mov    $0x0,%rdi
+ 1b9:	31 c0                	xor    %eax,%eax
+ 1bb:	48 89 e5             	mov    %rsp,%rbp
+ 1be:	e8 00 00 00 00       	callq  1c3 <cleanup_module+0x25>
+ 1c3:	48 c7 c7 00 00 00 00 	mov    $0x0,%rdi
+ 1ca:	31 c0                	xor    %eax,%eax
+ 1cc:	e8 00 00 00 00       	callq  1d1 <cleanup_module+0x33>
+ 1d1:	5d                   	pop    %rbp
+ 1d2:	c3                   	retq   
