@@ -2,13 +2,40 @@
 
 
 
-当前目录为  **驱动测试目录**
+## 目录列表
 
-| 总目录       | 测试目录  | 测试说明                                                     |
-| ------------ | --------- | ------------------------------------------------------------ |
-| base-test    |           |                                                              |
-| chardev-test |           |                                                              |
-| vfio-test    | vfio-mdev | 内核vfio测试代码：samples\vfio-mdev\mtty.c  用vfio-mdev模拟一个tty串口设备，进行测试主从间通信 |
-|              | vfio-test | 模拟qemu去访问vfio-mdev设备                                  |
-|              | vfio-demo | 测试通过vfio模拟一个pci设备，进行Guest和Host通信，并评估主从间通信时间 |
+### base-struct 基础结构和描述
+
+```
+base-struct/
+├── bitmap	# 测试Linux bitmap的代码
+├── hash	# 测试Linux hash表的代码
+├── idr		# 测试Linux idr的代码
+├── kfifo	# 测试Linux kfifo的代码
+├── list	# 测试Linux list的代码
+├── macro	# 测试Linux macro的代码
+├── notify	# 测试Linux notify的代码
+├── procfs	# 测试Linux procfs的代码
+├── rbtree	# 测试Linux rbtree的代码
+└── sysfs	# 测试Linux sysfs的代码
+```
+
+
+
+### base-driver 基础的设备驱动
+
+### module-driver 常用模块驱动
+
+- dma-test DMA模块测试
+- pcie-test PCIE模块驱动测试
+
+### virt-test 虚拟化相关测试
+
+
+
+### 
+
+
+
+
 
