@@ -26,15 +26,20 @@
 #include <errno.h>
 #include <limits.h>
 #include <sys/param.h>
-#include <sys/types.h>
-#include <linux/types.h>
-#include <ctype.h>
+
 #include <linux/magic.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
 
+#include "s_types.h"
+// #include "s_bitmap.h"
+// #include "s_error.h"
 #include "s_compiler.h"
+#include "s_list.h"
+#include "s_jhash.h"
+
+
 
 
 #ifdef __GNUC__

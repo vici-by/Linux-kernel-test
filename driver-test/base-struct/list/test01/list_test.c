@@ -3,7 +3,8 @@
     > Author: baiy
     > Mail: baiyang0223@163.com
     > Created Time: 2021-04-06-14:34:52
-    > Func:  测试Linux 内核链表
+    > Func:  测试Linux 内核链表, 参考文档：
+    > https://www.yuque.com/docs/share/779a01b2-8660-40ed-8289-3feaf1b60f53?#
  ************************************************************************/
 #define pr_fmt(fmt) "[%s:%d]: " fmt, __func__, __LINE__
 #include <linux/uaccess.h>
@@ -49,6 +50,7 @@ static void list_test(void)
 	INIT_LIST_HEAD(&head2.head);
 
 	// 申请并添加链表
+	pr_info("create list\n");
 	for(i=0; i<5; ++i){
 		struct list_test_node *n1 = kzalloc(sizeof(struct list_test_node), GFP_KERNEL);
 		struct list_test_node *n2 = kzalloc(sizeof(struct list_test_node), GFP_KERNEL);
@@ -62,6 +64,7 @@ static void list_test(void)
 
 
 	// 链表的遍历
+	pr_info("traversal list\n");
 	{
 		struct list_head *p;
 		struct list_test_node *n1, *n2;
@@ -75,7 +78,7 @@ static void list_test(void)
 		// 方式二
 		pr_info("Dump List n2 used list_for_each_entry\n");
 		list_for_each_entry(n2, &head2.head, node){ // list_for_each_entry_reverse 反向遍历
-			pr_info("nn is %d\n",n2->num);
+			pr_info("n2 is %d\n",n2->num);
 		}
 	}
 
@@ -111,21 +114,23 @@ static void list_test(void)
 
 		pr_info("Dump List n2 used list_for_each_entry\n");
 		list_for_each_entry(n2, &head2.head, node){ // list_for_each_entry_reverse 反向遍历
-			pr_info("nn is %d\n",n2->num);
+			pr_info("n2 is %d\n",n2->num);
 		}
 	}
 
 	// 链表的左移
+	pr_info("rotate_left list\n"); // rotate ：旋转
 	{
-		struct list_test_node *n1, *n2;
+		struct list_test_node *n2;
 		list_rotate_left(&head2.head);		// 左移一个元素：函数用于将链表第一节点移动到链表的末尾。
 		pr_info("Dump List n2 used list_for_each_entry\n");
 		list_for_each_entry(n2, &head2.head, node){ // list_for_each_entry_reverse 反向遍历
-			pr_info("nn is %d\n",n2->num);
+			pr_info("n2 is %d\n",n2->num);
 		}
 	}
 
 	// 释放链表
+	pr_info("delete list\n");
 	{
 		struct list_test_node *n1, *tmpn1;
 		struct list_test_node *n2, *tmpn2;
@@ -141,6 +146,7 @@ static void list_test(void)
 		}
 	}
 
+	pr_info("Test List [X]\n");
 }
 
 static int __init list_dev_init(void)

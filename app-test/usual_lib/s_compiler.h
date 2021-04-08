@@ -1,11 +1,13 @@
 /*************************************************************************
     > File Name: s_compiler.h
     > Author: baiy
-    > Mail: baiyang0223@163.com 
+    > Mail: baiyang0223@163.com
     > Created Time: 2020-12-11-17:46:07
     > Func: 编译器配置选项
  ************************************************************************/
 
+#ifndef S_COMPILER_H
+#define S_COMPILER_H
 
 #ifndef __WORDSIZE
 #define __WORDSIZE (__SIZEOF_LONG__ * 8)
@@ -31,8 +33,8 @@
 
 
 
-/* 
- * 此函数为GNU扩展，用来判断两个类型是否相同，如果type_a与 type_b相同的话，就会返回1，否则的话，返回0 
+/*
+ * 此函数为GNU扩展，用来判断两个类型是否相同，如果type_a与 type_b相同的话，就会返回1，否则的话，返回0
  */
 #ifndef __same_type
 # define __same_type(a, b) __builtin_types_compatible_p(typeof(a), typeof(b))
@@ -42,3 +44,6 @@
 #define __must_be_array(a)	BUILD_BUG_ON_ZERO(__same_type((a), &(a)[0])) // 区分指针和数组
 
 
+
+
+#endif

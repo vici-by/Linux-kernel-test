@@ -4,7 +4,7 @@
 # kernel build system and can use its language.
 ifneq ($(KERNELRELEASE),)
 	#这部分第二次执行		
-	obj-m := list_test.o
+	obj-m := hlist_test.o
 	# Otherwise we were called directly from the command
 	# line; invoke the kernel build system.			
 else				
