@@ -82,7 +82,7 @@ static __always_inline int s_ffs(unsigned int x)
 
 static __always_inline int s_fls(unsigned int x)  // x=0返回0，其余返回1-32
 {
-	int r = 32;					// 
+	int r = 32;					//
 
 	if (!x)
 		return 0;
@@ -110,6 +110,10 @@ static __always_inline int s_fls(unsigned int x)  // x=0返回0，其余返回1-
 }
 
 
+#define s_ffz(x)  s_ffs(~(x))  // ffz实现很机智
+#define s_flz(x)  s_fls(~(x))
+
+
 
 // 64位操作使用32位组合即可
 static __always_inline  unsigned int s_ffs64(u64 word)
@@ -125,13 +129,33 @@ static __always_inline  unsigned int s_fls64(u64 word)
 	if(!word)
 		return 0;
 	if ( ((u32)(word>>32)) == 0UL) // 如果高32bit为0，则直接查找低32bit
-		return s_ffs((u32)(word)) + 32;
+		return s_fls((u32)(word));
 
-	return s_ffs((u32)(word>>32));   // 否则直接查找高32bit哪个为1
+	return s_fls((u32)(word >> 32)) + 32;   // 否则直接查找高32bit哪个为1
 }
 
 
 
+static __always_inline  unsigned int s_ffz64(u64 word)
+{
+	if( word == ~0UL )
+		return 0;
+	if( ((u32)(word)) != 0xFFFFFFFF) // ffz用来查找二进制数中第一个为0的位， 优先判断低32-bit
+		return s_ffz((u32)(word));
+	return s_ffz((u32)(word>>32)) + 32;
+}
+
+static __always_inline  unsigned int s_flz64(u64 word)
+{
+	if( word == ~0UL )
+		return 0;
+	if( ((u32)(word>>32)) != 0xFFFFFFFF){ // flz用来查找二进制数中最后一个为0的位，优先判断高32-bit
+		pr_info("flz is %#x\n", s_flz((u32)(word >> 32)));
+		return s_flz((u32)(word >> 32)) + 32;
+	}
+	return s_flz((u32)(word));
+
+}
 #endif
 
 static int bitops_run_get(char *val, const struct kernel_param *kp)
@@ -152,9 +176,11 @@ static int bitops_run_set(const char *val, const struct kernel_param *kp)
 		// mutex_unlock(&info->lock);
 		return ret;
 	}
-	pr_info("val: %#lx,roundup_pow_of_two: %#lx,ffs:%#x, fls:%#x\n",
-		bitops_run, roundup_pow_of_two(bitops_run),s_ffs64(bitops_run),s_fls64(bitops_run));
+	pr_info("val: %#lx,roundup_pow_of_two: %#lx,ffs32:%#x, fls32:%#x, ffz32:%#x, flz32:%#x\n",
+		bitops_run, roundup_pow_of_two(bitops_run),s_ffs(bitops_run),s_fls(bitops_run),s_ffz(bitops_run), s_flz(bitops_run));
 
+	pr_info("val: %#lx,roundup_pow_of_two: %#lx,ffs64:%#x, fls64:%#x, ffz64:%#x, flz64:%#x\n",
+		bitops_run, roundup_pow_of_two(bitops_run),s_ffs64(bitops_run),s_fls64(bitops_run),s_ffz64(bitops_run), s_flz64(bitops_run));
 
 	// mutex_unlock(&info->lock);
 
