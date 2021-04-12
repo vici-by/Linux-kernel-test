@@ -150,7 +150,6 @@ static __always_inline  unsigned int s_flz64(u64 word)
 	if( word == ~0UL )
 		return 0;
 	if( ((u32)(word>>32)) != 0xFFFFFFFF){ // flz用来查找二进制数中最后一个为0的位，优先判断高32-bit
-		pr_info("flz is %#x\n", s_flz((u32)(word >> 32)));
 		return s_flz((u32)(word >> 32)) + 32;
 	}
 	return s_flz((u32)(word));

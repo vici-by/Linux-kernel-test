@@ -14,7 +14,9 @@
 // #define TEST_BUILD_BUG_ON_ZERO // 测试编译器进行类型判断
 // #define BITMAP_TEST
 // #define TEST_LIST
-#define TEST_HASH
+// #define TEST_HASH
+#define TEST_BITOPS
+
 
 
 
@@ -285,6 +287,22 @@ static void jash_test(void)
 #endif
 
 
+#ifdef TEST_BITOPS
+static int bitops_run_set(const char *val)
+{
+	int ret;
+	unsigned long bitops_run = strtoul (val, NULL, 0);
+
+
+	pr_info("val: %#lx,roundup_pow_of_two: %#lx,ffs32:%#x, fls32:%#x, ffz32:%#x, flz32:%#x\n",
+		bitops_run, roundup_pow_of_two(bitops_run),s_ffs(bitops_run),s_fls(bitops_run),s_ffz(bitops_run), s_flz(bitops_run));
+
+	pr_info("val: %#lx,roundup_pow_of_two: %#lx,ffs64:%#x, fls64:%#x, ffz64:%#x, flz64:%#x\n",
+		bitops_run, roundup_pow_of_two(bitops_run),s_ffs64(bitops_run),s_fls64(bitops_run),s_ffz64(bitops_run), s_flz64(bitops_run));
+
+	return ret;
+}
+#endif
 
 int main(int argc, char * argv[])
 {
@@ -311,7 +329,7 @@ int main(int argc, char * argv[])
 #endif
 
 #ifdef BITMAP_TEST
-    test_bitmap();
+    test_bitmap(argv[0]);
 #endif
 
 
@@ -321,6 +339,14 @@ int main(int argc, char * argv[])
 
 #ifdef TEST_HASH
 	jash_test();
+#endif
+
+#ifdef TEST_BITOPS
+	if(argc < 2) {
+        printf("test :Input %s [val]\n",argv[0]);
+        return -1;
+	}
+	bitops_run_set(argv[1]);
 #endif
 	return 0;
 }

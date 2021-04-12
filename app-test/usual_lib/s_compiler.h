@@ -14,7 +14,7 @@
 #endif
 
 
-// 强制内联，修饰的函数在被调用的时候不会被编译成函数调用,而是直接扩展到调用函数体内.
+// __always_inline强制内联，修饰的函数在被调用的时候不会被编译成函数调用,而是直接扩展到调用函数体内.
 #ifndef __always_inline
 # define __always_inline	inline __attribute__((always_inline))
 #endif
@@ -24,7 +24,7 @@
  * 编译器分支预测优化（将可能的分支提前），likely表示更大可能成立，unlikely表示更大可能不成立
  */
 #ifndef likely
-#define likely(x) __builtin_expect(!!(x), 1)  // x==1 很有可能发生
+#define likely(x) __builtin_expect(!!(x), 1)   // x==1 很有可能发生
 #endif
 #ifndef unlikely
 #define unlikely(x) __builtin_expect(!!(x), 0) // x==0基本不发生
