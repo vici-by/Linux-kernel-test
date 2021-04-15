@@ -17,4 +17,4 @@ default:
 endif			
 
 clean:			   
-	rm -rf *.ko *.mod .*.ko.cmd  *.mod.c  *.mod.o .*.mod.o.cmd *.o .*.o.cmd modules.order  Module.symvers .tmp_versions \.*.mod.cm
+	rm -rf *.ko *.mod .*.ko.cmd  *.mod.c  *.mod.o .*.mod.o.cmd *.o .*.o.cmd modules.order  Module.symvers .tmp_versions \.*.mod.cmd
