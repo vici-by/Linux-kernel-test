@@ -15,7 +15,9 @@
 // #define BITMAP_TEST
 // #define TEST_LIST
 // #define TEST_HASH
-#define TEST_BITOPS
+// #define TEST_BITOPS
+
+#define TEST_KFIFO
 
 
 
@@ -304,6 +306,50 @@ static int bitops_run_set(const char *val)
 }
 #endif
 
+
+#ifdef TEST_KFIFO
+#define FIFO_SIZE (8)
+
+
+
+static void kfifo_test (void)
+{
+	int i = 0;
+	size_t size = 0 ;
+	unsigned int val = 0;
+
+	DECLARE_KFIFO_PTR(fifo, unsigned int);
+	kfifo_alloc(&fifo, FIFO_SIZE, 0);
+
+	for(i = 0 ; i <= FIFO_SIZE; ++i){
+		val = i;
+		if (kfifo_is_full(&fifo)) {
+			pr_info("[KFIFO PUSH]:size %#lx , in %#x, out %#x, len %#x is FULL",
+				size, fifo.kfifo.in, fifo.kfifo.out, fifo.kfifo.in - fifo.kfifo.out);
+			break;
+		}
+
+		kfifo_put(&fifo, val);
+		size = kfifo_len(&fifo);
+		pr_info("[KFIFO PUSH]: %u, size %#lx , in %#x, out %#x, len %#x",
+			val, size, fifo.kfifo.in, fifo.kfifo.out, fifo.kfifo.in - fifo.kfifo.out);
+	}
+
+	while(1) {
+		if (kfifo_is_empty(&fifo)) {
+			pr_info("[KFIFO POP]: size %#lx, in %#x, out %#x, len %#x is Empty",
+				size, fifo.kfifo.in, fifo.kfifo.out, fifo.kfifo.in - fifo.kfifo.out);
+			break;
+		}
+		kfifo_get(&fifo, &val);
+		size = kfifo_len(&fifo);
+		pr_info("[KFIFO POP]: %u, size %#lx , in %#x, out %#x, len %#x",
+			val, size, fifo.kfifo.in, fifo.kfifo.out, fifo.kfifo.in - fifo.kfifo.out);
+	}
+
+}
+#endif
+
 int main(int argc, char * argv[])
 {
 #ifdef TEST_ALIGNMENT
@@ -347,6 +393,10 @@ int main(int argc, char * argv[])
         return -1;
 	}
 	bitops_run_set(argv[1]);
+#endif
+
+#ifdef TEST_KFIFO
+	kfifo_test();
 #endif
 	return 0;
 }

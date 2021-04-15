@@ -38,7 +38,7 @@
 #include "s_compiler.h"
 #include "s_list.h"
 #include "s_jhash.h"
-
+#include "s_kfifo.h"
 
 
 

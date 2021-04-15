@@ -45,5 +45,11 @@
 
 
 
+#ifndef __must_check
+#define __must_check
+#endif
+
+
+
 
 #endif
