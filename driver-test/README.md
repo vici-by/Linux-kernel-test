@@ -108,6 +108,24 @@ base-struct/
 
 
 
+### task-test 多任务测试
+
+#### task-struct 多任务结构描述
+
+
+
+#### task-create 任务的创建和销毁
+
+```
+inno@inno-MS-7B89:task-create$ tree -L 1
+.
+└── test01	# 使用 kthread_run 和 kthread_stop 创建和关闭线程
+```
+
+
+
+#### task-dispatch 任务调度
+
 
 
 
