@@ -36,6 +36,9 @@ static int dev_0_ops_bind(struct device *dev, struct device *master,
 	struct platform_device * pdev = to_platform_device(dev);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d, master_data = %p\n",pdev, &pdev->dev, id, master_data);
+	msleep(1000);
+	pr_info("[X]");
+
 	return 0;
 }
 
@@ -51,6 +54,9 @@ static int dev_1_ops_bind(struct device *dev, struct device *master,
 	struct platform_device * pdev = to_platform_device(dev);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d, master_data = %p\n",pdev, &pdev->dev, id, master_data);
+	msleep(1000);
+	pr_info("[X]");
+
 	return 0;
 }
 
@@ -66,6 +72,9 @@ static int dev_2_ops_bind(struct device *dev, struct device *master,
 	struct platform_device * pdev = to_platform_device(dev);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d, master_data = %p\n",pdev, &pdev->dev, id, master_data);
+	msleep(1000);
+	pr_info("[X]");
+
 	return 0;
 }
 
@@ -81,6 +90,9 @@ static int dev_3_ops_bind(struct device *dev, struct device *master,
 	struct platform_device * pdev = to_platform_device(dev);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d, master_data = %p\n",pdev, &pdev->dev, id, master_data);
+	msleep(1000);
+	pr_info("[X]");
+
 	return 0;
 }
 
@@ -96,6 +108,9 @@ static int dev_4_ops_bind(struct device *dev, struct device *master,
 	struct platform_device * pdev = to_platform_device(dev);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d, master_data = %p\n",pdev, &pdev->dev, id, master_data);
+	msleep(1000);
+	pr_info("[X]");
+
 	return 0;
 }
 
@@ -112,7 +127,8 @@ static int comp_master_bind(struct device *master)
 	struct platform_device * pdev = to_platform_device(master);
 	int id = pdev->id;
 	pr_info("[E] pdev %p, dev=%p, id=%d\n",pdev, &pdev->dev, id);
-	component_bind_all(master,pdev);	// 这个pdev就是其余设备 master_data的数据来源
+	component_bind_all(master,pdev);	// ！！！这个pdev就是其余设备 master_data的数据来源
+										// ！！！经过测试，这一步执行后，后续执行必须在所有设备调用完bind以后
 	pr_info("[X]\n");
 	msleep(1000);
 	pr_info("[X] OK\n");
