@@ -1,0 +1,57 @@
+[  176.434615] component_register: module verification failed: signature and/or required key missing - tainting kernel
+[  176.434793] [comp_reg_init:45] init [E]
+[  184.842760] [comp_master_init:318] init [E]
+[  184.842785] [comp_dev_0_probe:162] [E] pdev 00000000bbbffff3, dev=000000002ca6c445, name=COMP_DEV_0.0
+[  184.842785] [comp_dev_0_probe:163] [X]
+[  184.846716] [comp_dev_1_probe:176] [E] pdev 0000000030f690dc, dev=0000000022318004, name=COMP_DEV_1.1
+[  184.846717] [comp_dev_1_probe:177] [X]
+[  184.846743] [comp_dev_2_probe:190] [E] pdev 000000003e842f27, dev=000000003f758378, name=COMP_DEV_2.2
+[  184.846744] [comp_dev_2_probe:191] [X]
+[  184.846758] [comp_dev_3_probe:205] [E] pdev 0000000008c90a34, dev=00000000382d731e, name=COMP_DEV_3.3
+[  184.846759] [comp_dev_3_probe:206] [X]
+[  184.847899] [comp_dev_4_probe:220] [E] pdev 00000000fa1da720, dev=000000004985cb18, name=COMP_DEV_4.4
+[  184.847900] [comp_dev_4_probe:221] [X]
+
+[  184.847920] [comp_master_probe:273] [E] pdev 000000006b013371, dev=0000000060206f22, name=COMP_MASTER.5
+[  184.847921] [comp_master_probe:285] add component COMP_DEV_0, initname is (null)
+[  184.847923] [comp_master_probe:285] add component COMP_DEV_1, initname is (null)
+[  184.847924] [comp_master_probe:285] add component COMP_DEV_2, initname is (null)
+[  184.847925] [comp_master_probe:285] add component COMP_DEV_3, initname is (null)
+[  184.847926] [comp_master_probe:285] add component COMP_DEV_4, initname is (null)
+[  184.847928] [comp_master_bind:114] [E] pdev 000000006b013371, dev=0000000060206f22, id=5
+[  184.847929] [dev_0_ops_bind:38] [E] pdev 00000000bbbffff3, dev=000000002ca6c445, id=0, master_data = 000000006b013371
+[  184.847934] COMP_MASTER COMP_MASTER.5: bound COMP_DEV_0.0 (ops dev_0_ops [component_cb])
+[  184.847935] [dev_1_ops_bind:53] [E] pdev 0000000030f690dc, dev=0000000022318004, id=1, master_data = 000000006b013371
+[  184.847938] COMP_MASTER COMP_MASTER.5: bound COMP_DEV_1.1 (ops dev_1_ops [component_cb])
+[  184.847939] [dev_2_ops_bind:68] [E] pdev 000000003e842f27, dev=000000003f758378, id=2, master_data = 000000006b013371
+[  184.847941] COMP_MASTER COMP_MASTER.5: bound COMP_DEV_2.2 (ops dev_2_ops [component_cb])
+[  184.847942] [dev_3_ops_bind:83] [E] pdev 0000000008c90a34, dev=00000000382d731e, id=3, master_data = 000000006b013371
+[  184.847944] COMP_MASTER COMP_MASTER.5: bound COMP_DEV_3.3 (ops dev_3_ops [component_cb])
+[  184.847945] [dev_4_ops_bind:98] [E] pdev 00000000fa1da720, dev=000000004985cb18, id=4, master_data = 000000006b013371
+[  184.847947] COMP_MASTER COMP_MASTER.5: bound COMP_DEV_4.4 (ops dev_4_ops [component_cb])S
+
+
+
+===============从这里看，好像其他设备初始化确实在所有设备初始化完成之后才开始==========================================
+
+[  184.847948] [comp_master_bind:116] [X]
+[  185.856346] [comp_master_bind:118] [X] OK
+[  191.836748] [comp_master_exit:332] exit [E]
+[  191.836761] [comp_master_remove:296] [E] pdev 000000006b013371, dev=0000000060206f22
+[  191.836763] [comp_master_unbind:126] [E] pdev 000000006b013371, dev=0000000060206f22, id=5
+[  191.836764] [dev_4_ops_unbind:105] [X]
+[  191.836766] [dev_3_ops_unbind:90] [X]
+[  191.836767] [dev_2_ops_unbind:75] [X]
+[  191.836768] [dev_1_ops_unbind:60] [X]
+[  191.836769] [dev_0_ops_unbind:45] [X]
+[  191.836770] [comp_master_unbind:128] [X]
+[  191.840869] [comp_dev_0_remove:168] [E] pdev 00000000bbbffff3, dev=000000002ca6c445
+[  191.840870] [comp_dev_0_remove:169] [X]
+[  191.840888] [comp_dev_1_remove:182] [E] pdev 0000000030f690dc, dev=0000000022318004
+[  191.840889] [comp_dev_1_remove:183] [X]
+[  191.840899] [comp_dev_2_remove:196] [E] pdev 000000003e842f27, dev=000000003f758378
+[  191.840899] [comp_dev_2_remove:197] [X]
+[  191.840908] [comp_dev_3_remove:211] [E] pdev 0000000008c90a34, dev=00000000382d731e
+[  191.840908] [comp_dev_3_remove:212] [X]
+[  191.840916] [comp_dev_4_remove:226] [E] pdev 00000000fa1da720, dev=000000004985cb18
+
