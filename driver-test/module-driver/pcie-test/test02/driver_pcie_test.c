@@ -1,9 +1,9 @@
 /*************************************************************************
     > File Name: driver_pcie_test.c
     > Author: baiy
-    > Mail: baiyang0223@163.com 
+    > Mail: baiyang0223@163.com
     > Created Time: 2020-10-21-09:33:13
-    > Func: 
+    > Func: 实现一个好用的PCI通用驱动，参考 aq_pci_func.c 实现
  ************************************************************************/
 #define pr_fmt(fmt)  "[%s:%d] " fmt, __func__, __LINE__
 
@@ -45,15 +45,24 @@
 
 #define DEV_NAME "PCIE_DEMO"
 
+// 功能支持
 #define OPEN_SRIOV
 #define OPEN_MSI
 
+#define DEMO_HW_IRQ_INVALID 0U
+#define DEMO_HW_IRQ_LEGACY  1U
+#define DEMO_HW_IRQ_MSI     2U
+#define DEMO_HW_IRQ_MSIX    3U
+
+
+// 上层接口
 #define IOC_MAGIC  'p'
 #define PCIE_DEMO_READ_CONFIG       _IO(IOC_MAGIC, 0)
 #define PCIE_DEMO_DUMP_RESOURCE     _IO(IOC_MAGIC, 1)
 #define PCIE_DEMO_READ_BAR          _IO(IOC_MAGIC, 2)
 #define PCIE_DEMO_WRITE_BAR         _IO(IOC_MAGIC, 3)
 #define PCIE_BAR_STABLE_TEST        _IO(IOC_MAGIC, 4)
+
 
 
 #define XILINX_PCIE_TEST
@@ -63,8 +72,8 @@
 #define PCI_VENDOR_VF_ID_DEMO      0x10EE
 #define PCI_DEVICE_VF_ID_DEMO      0x9232
 #endif
+#define MSI_DEFAULT_COUNT	(32)
 
-#define REQ_ACS_FLAGS   (PCI_ACS_SV | PCI_ACS_RR | PCI_ACS_CR | PCI_ACS_UF)
 
 struct pci_demo_bar {
     resource_size_t base_addr;
@@ -74,26 +83,31 @@ struct pci_demo_bar {
 } __packed;
 
 
-/* priv_flags */
-#define DEMO_SRIOV_ENABLED      (1 << 0)
-#define DEMO_MSI_ENABLED        (1 << 1)
 
 struct pcie_demo_data {
     u16    num_vfs;
-    unsigned int priv_flags;
-    struct pci_dev * pcidev;
+
+    struct pci_dev * pdev;
     struct pci_demo_bar bar[DEVICE_COUNT_RESOURCE];
     struct mutex mlock;
     spinlock_t slock;
+
 #ifdef  OPEN_MSI
 #ifdef  CONFIG_PCI_MSI
+	unsigned int msix_entry_mask;
+	void * demo_vec[MSI_DEFAULT_COUNT];
     atomic64_t irq_nums;
+	unsigned int nr_vectors;
     struct irq_domain *dom;
 #endif  //OPEN_MSI
 #endif  //CONFIG_PCI_MSI
 };
 
 struct pcie_demo_data  * pcie_data;
+
+const static irq_handler_t  handler_arr[4] = {
+
+};
 
 
 static ssize_t pcie_demo_read (struct file * filp, char __user * buf, size_t size, loff_t * offset)
@@ -131,7 +145,7 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
 
     pdata = (struct pcie_demo_data *)filp->private_data;
 
-    pdev  = pdata->pcidev;
+    pdev  = pdata->pdev;
 
     if(args) {
         opt = (struct pci_demo_opt * )args;
@@ -234,11 +248,9 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
             break;
         case PCIE_BAR_STABLE_TEST:
             {
-            int * pb1;
-            int * pb2;
+
             char * tmpbuf2;
             unsigned long cnt;
-            unsigned long i;
 
             pbar = &(pdata->bar[opt->barnum]);
             if(pbar->virt_addr == NULL) {
@@ -259,21 +271,10 @@ static long pcie_demo_ioctl (struct file * filp, unsigned int cmd, unsigned long
                     memset(tmpbuf2,0,PAGE_SIZE);
                     get_random_bytes_wait(tmpbuf,PAGE_SIZE);
 
-                    #if 1
                     pr_info("Start mem to io\n");
                     memcpy_toio(pbar->virt_addr +  opt->offset + loop,tmpbuf,PAGE_SIZE);
                     pr_info("Start mem from io\n");
                     memcpy_fromio(tmpbuf2,pbar->virt_addr +  opt->offset + loop,PAGE_SIZE);
-                    #else
-                    pb1 = (int *)tmpbuf;
-                    pb2 = (int *)tmpbuf2;
-                    for(i=0;i<PAGE_SIZE;i+=4){
-                        iowrite32(pb1[i/4], pbar->virt_addr +  opt->offset + loop + i);
-                    }
-                    for(i=0;i<PAGE_SIZE;i+=4){
-                        pb2[i/4] = ioread32(pbar->virt_addr +  opt->offset + loop + i);
-                    }
-                    #endif
                     if(memcmp(tmpbuf,tmpbuf2,PAGE_SIZE)){
                         pr_info("[bar %ld offset %lu count %ld] test FAILED\n",opt->barnum,loop+opt->offset,cnt);
                         pr_info("%#x-%#x\n",((int *)tmpbuf)[0], ((int *)tmpbuf2)[0]);
@@ -324,23 +325,123 @@ static struct miscdevice pcie_demo_drv = {
     .fops  = &pcie_demo_fops,
 };
 
+
+/*******************中断相关接口***************************/
 #ifdef OPEN_MSI
 #ifdef CONFIG_PCI_MSI
-
 static irqreturn_t demo_pci_msi_isr(int irq, void * data)
 {
     unsigned long flags;
-    struct pcie_demo_data *pdata = (struct pcie_demo_data *)data;
-    spin_lock_irqsave(&(pdata->slock), flags);
-    atomic64_inc(&(pdata->irq_nums));
-    pr_info("recv irq-%llu", atomic64_read(&(pdata->irq_nums)));
-    spin_unlock_irqrestore(&(pdata->slock), flags);
+    struct pcie_demo_data *self = (struct pcie_demo_data *)data;
+    spin_lock_irqsave(&(self->slock), flags);
+    atomic64_inc(&(self->irq_nums));
+    pr_info("recv [%d] irq-total %llu", irq, atomic64_read(&(self->irq_nums)));
+    spin_unlock_irqrestore(&(self->slock), flags);
 
     return IRQ_HANDLED;
 }
 
-#endif
-#endif
+#endif	// CONFIG_PCI_MSI
+#endif	// OPEN_MSI
+
+unsigned int demo_pci_func_get_irq_type(struct pcie_demo_data *self)
+{
+	if (self->pdev->msix_enabled)
+		return DEMO_HW_IRQ_MSIX;
+	if (self->pdev->msi_enabled)
+		return DEMO_HW_IRQ_MSI;
+
+	return DEMO_HW_IRQ_LEGACY;
+}
+
+int demo_pci_func_alloc_irq(struct pcie_demo_data *self, unsigned int i,
+			  char *name, void *irq_arg, cpumask_t *affinity_mask)
+{
+	struct pci_dev *pdev = self->pdev;
+	int err;
+
+	if (pdev->msix_enabled || pdev->msi_enabled)
+		err = request_irq(pci_irq_vector(pdev, i), demo_pci_msi_isr, 0,
+				  name, irq_arg);
+	else
+		err = request_irq(pci_irq_vector(pdev, i), demo_pci_msi_isr,
+				  IRQF_SHARED, name, irq_arg);
+
+	if (err >= 0) {
+		pr_info("Vector %d request irq OK", i);
+		self->msix_entry_mask |= (1 << i);
+		self->demo_vec[i] = irq_arg;
+
+		if (pdev->msix_enabled && affinity_mask)
+			irq_set_affinity_hint(pci_irq_vector(pdev, i),
+					      affinity_mask);
+	}
+
+	return err;
+}
+
+void demo_pci_func_free_irqs(struct pcie_demo_data *self)
+{
+	struct pci_dev *pdev = self->pdev;
+	unsigned int i;
+	void *irq_data;
+
+	for (i = 32U; i--;) {
+		if (!((1U << i) & self->msix_entry_mask))
+			continue;
+		irq_data = self->demo_vec[i];
+
+		if (pdev->msix_enabled)
+			irq_set_affinity_hint(pci_irq_vector(pdev, i), NULL);
+		free_irq(pci_irq_vector(pdev, i), irq_data);
+		self->msix_entry_mask &= ~(1U << i);
+	}
+}
+
+
+
+
+
+
+/*******************初始化相关接口***************************/
+
+static int demo_pci_func_init(struct pci_dev *pdev,const char * name)
+{
+	int err;
+
+	err = pci_set_dma_mask(pdev, DMA_BIT_MASK(64));
+	if (!err)
+		err = pci_set_consistent_dma_mask(pdev, DMA_BIT_MASK(64));
+	if (err) {
+		err = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
+		if (!err)
+			err = pci_set_consistent_dma_mask(pdev,
+							  DMA_BIT_MASK(32));
+	}
+	if (err != 0) {
+		err = -ENOSR;
+		goto err_exit;
+	}
+
+	err = pci_request_regions(pdev, name);
+	if (err < 0)
+		goto err_exit;
+
+	pci_set_master(pdev);
+
+	return 0;
+
+err_exit:
+	return err;
+}
+static void demo_pci_func_exit(struct pci_dev *pdev)
+{
+	pci_release_regions(pdev);
+
+	return;
+}
+
+
 
 int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -352,6 +453,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     int err = -EINVAL;
     struct pci_demo_bar * pbar;
     struct device * dev;
+	unsigned int numvecs = 0U;
 
     struct iommu_group *group = NULL;
 #ifdef OPEN_SRIOV
@@ -360,9 +462,8 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     u16 num_vfs = 0;
 #endif
 #endif
+
     pr_info("prbe [E] 20201225 1109\n");
-
-
 
     dev = &(pdev->dev);
 
@@ -376,18 +477,17 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
     mutex_init(&(pdata->mlock));
     spin_lock_init(&(pdata->slock));
     dev_set_drvdata(dev, pdata);
-    pdata->pcidev = pdev;
+    pdata->pdev = pdev;
     pbar = pdata->bar;
 
 #ifdef OPEN_SRIOV
-#ifdef CONFIG_PCI_IOV 
+#ifdef CONFIG_PCI_IOV
     /* Get number of subvnics */
     pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
     if (pos) {
         pci_read_config_word(pdev, pos + PCI_SRIOV_TOTAL_VF, &num_vfs);
         if (num_vfs) {
-            // err = pci_enable_sriov(pdev, num_vfs);
-            err = pci_enable_sriov(pdev, num_vfs > 1 ? 1 : 1);
+            err = pci_enable_sriov(pdev, num_vfs);
             if (err) {
                 pr_err("SRIOV enable failed, aborting."
                     " pci_enable_sriov() returned %d\n",
@@ -397,7 +497,7 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
             }
             pr_err("num_vfs is %d\n",num_vfs);
             pdata->num_vfs = num_vfs;
-            pdata->priv_flags |= DEMO_SRIOV_ENABLED;
+            // pdata->priv_flags |= DEMO_SRIOV_ENABLED;
         }
     }
 #endif
@@ -410,16 +510,14 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         goto err_enable;
     }
 
-    err = pci_request_regions(pdev, "demo_pci_test");
+    err = demo_pci_func_init(pdev, DEV_NAME "_mmio");
     if(err < 0){
         printk("ERROR: pci_enable_device\n");
         goto err_regions;
     }
-    pci_set_master(pdev);
 
     bus = pdev->bus;
     ops = bus->ops;
-
     r = pdev->resource;
 
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
@@ -437,23 +535,32 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 				pbar[loop].size, pbar[loop].virt_addr);
         }
     }
+
 #ifdef OPEN_MSI
 #ifdef CONFIG_PCI_MSI
     do{
-        if(pdata->priv_flags & DEMO_MSI_ENABLED){
-            pr_info("MSI is enabled\n");
-            break;
-        }
-
         //Start MSI method interrupt
-        dev_info(dev,"befor enable msi IRQ = %d\n",pdev->irq);
+        pr_info("befor enable msi IRQ = %d\n",pdev->irq);
         atomic64_set(&(pdata->irq_nums), 0);
-        /* Enable MSI/MSI-X */
-        err = pci_alloc_irq_vectors(pdev, 1,1, PCI_IRQ_MSI | PCI_IRQ_MSIX);
-        if (err < 0) {
-            pr_err( "Request for msi vectors failed,not support msi\n");
-            break;
-        }
+		numvecs = min(MSI_DEFAULT_COUNT,pci_msi_vec_count(pdev));
+		numvecs = min(numvecs, num_online_cpus());
+
+		/*enable interrupts */
+		err = pci_alloc_irq_vectors(pdev, numvecs, numvecs,
+						PCI_IRQ_MSI);
+		if (err < 0) {
+			pr_err("Request msi vecotrs %d failed, try alloc 1 vector\n", numvecs);
+			err = pci_alloc_irq_vectors(pdev, 1, 1,
+							PCI_IRQ_MSI);
+			if (err < 0) {
+				pr_err("Request msi vecotrs %d failed, not supported msi\n", numvecs);
+				break;
+			}
+		} else {
+			pr_err("Request msi vecotrs %d OK\n", numvecs);
+		}
+		pdata->nr_vectors = err;
+
 
         // pdata->dom = pci_msi_get_device_domain(pdev);
         pdata->dom = dev->msi_domain;
@@ -462,25 +569,27 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
         } else {
             pr_err("pdev irq_domain is NULL\n");
         }
-        
-        /* Register mailbox interrupt handlers */
-        err = request_irq(pci_irq_vector(pdev, 0),
-                  demo_pci_msi_isr, 0, DEV_NAME, pdata);
-        if (err){
-            pr_err("Not Support MSI interrupt\n");
-            pci_free_irq_vectors(pdev);
-            break;
-        }
-        pdata->priv_flags |= DEMO_MSI_ENABLED;
+
+
+		for (loop=0; loop<pdata->nr_vectors; ++loop) {
+			err = demo_pci_func_alloc_irq(pdata, loop, DEV_NAME, pdata, NULL);
+	        if (err) {
+	            pr_err("Not Support MSI interrupt\n");
+				demo_pci_func_free_irqs(pdata);
+	            pci_free_irq_vectors(pdev);
+	            break;
+	        }
+		}
+
         pr_info("MSI  enabled\n");
-        dev_info(dev,"after enable msi IRQ = %d\n",pdev->irq);
+        pr_info("after enable msi IRQ = %d\n",pdev->irq);
         break;
     }while(1);
-#endif
-#endif
+#endif // CONFIG_PCI_MSI
+#endif // OPEN_MSI
 
 #if 0
-#define TEST_IOMMU_GROUP 
+#define TEST_IOMMU_GROUP
 #ifdef TEST_IOMMU_GROUP
 
     for (bus = pdev->bus; !pci_is_root_bus(bus); bus = bus->parent) {
@@ -496,23 +605,29 @@ int  demo_pcie_probe(struct pci_dev *pdev, const struct pci_device_id *id)
             pr_info("Find iommu groub \n");
             break;
         }
-        
+
     }
 #endif
 #endif
     pr_info("prbe [X]\n");
     return 0;
 
-    pci_release_regions (pdev);
+err_exit:
+#ifdef OPEN_MSI
+#ifdef CONFIG_PCI_MSI
+	demo_pci_func_free_irqs(pdata);
+	pci_free_irq_vectors(pdev);
+#endif // CONFIG_PCI_MSI
+#endif // OPEN_MSI
+
+
+    demo_pci_func_exit(pdev);
 err_regions:
-    pci_disable_device (pdev);
+    pci_disable_device(pdev);
 err_enable:
 #ifdef OPEN_SRIOV
 #ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-    }
+	pci_disable_sriov(pdev);
 #endif
 #endif
 err_sriov:
@@ -539,14 +654,8 @@ void demo_pcie_remove(struct pci_dev *pdev)
 #ifdef OPEN_MSI
 #ifdef CONFIG_PCI_MSI
     do{
-        if(!(pdata->priv_flags & DEMO_MSI_ENABLED)) {
-            pr_info("MSI is not enabled\n");
-            break;
-        }
-
-        free_irq(pci_irq_vector(pdev, 0), pdata);
-        pci_free_irq_vectors(pdev);
-        pdata->priv_flags &= ~DEMO_MSI_ENABLED;
+        demo_pci_func_free_irqs(pdata);
+		pci_free_irq_vectors(pdev);
         atomic64_set(&(pdata->irq_nums), 0);
         break;
     }while(1);
@@ -555,12 +664,10 @@ void demo_pcie_remove(struct pci_dev *pdev)
 
 #ifdef OPEN_SRIOV
 #ifdef CONFIG_PCI_IOV
-    if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-        pci_disable_sriov(pdev);
-        pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
-    }
+	pci_disable_sriov(pdev);
 #endif
 #endif
+
     pbar = pdata->bar;
     for(loop=0;loop<DEVICE_COUNT_RESOURCE; ++loop){
         if(pbar[loop].virt_addr)  {
@@ -568,7 +675,7 @@ void demo_pcie_remove(struct pci_dev *pdev)
         }
     }
 
-    pci_release_regions (pdev);
+    demo_pci_func_exit(pdev);
     pci_disable_device (pdev);
 
     dev_set_drvdata(dev, NULL);
@@ -577,6 +684,7 @@ void demo_pcie_remove(struct pci_dev *pdev)
 
     pr_info("remove [X]\n");
 }
+
 
 #ifdef OPEN_SRIOV
 #ifdef CONFIG_PCI_IOV
@@ -593,7 +701,7 @@ static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
     dev = &(pdev->dev);
     pdata = (struct pcie_demo_data *)dev_get_drvdata(dev);
 
-    if(numvfs > 0) {
+    if (numvfs > 0) {
         /* Get number of subvnics */
         pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_SRIOV);
         if (pos) {
@@ -608,14 +716,7 @@ static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
                 }
                 pr_err("num_vfs is %d\n",num_vfs);
                 pdata->num_vfs = num_vfs;
-                pdata->priv_flags |= DEMO_SRIOV_ENABLED;
             }
-        }
-
-    } else {
-        if (pdata->priv_flags & DEMO_SRIOV_ENABLED ) {
-            pci_disable_sriov(pdev);
-            pdata->priv_flags &= ~DEMO_SRIOV_ENABLED;
         }
     }
     pr_info("sriov config [X]\n");
@@ -629,7 +730,7 @@ static int demo_pcie_sriov_configure(struct pci_dev *pdev, int numvfs)
 
 static struct pci_device_id demo_pcie_table[] = {
     {PCI_DEVICE(PCI_VENDOR_PF_ID_DEMO,PCI_DEVICE_PF_ID_DEMO), },
-    {PCI_DEVICE(PCI_VENDOR_VF_ID_DEMO,PCI_DEVICE_VF_ID_DEMO), },
+    // {PCI_DEVICE(PCI_VENDOR_VF_ID_DEMO,PCI_DEVICE_VF_ID_DEMO), },
     { 0, }
 };
 MODULE_DEVICE_TABLE(pci, demo_pcie_table);
@@ -642,8 +743,8 @@ static struct pci_driver  demo_pcie_driver  = {
 #ifdef  OPEN_SRIOV
 #ifdef  CONFIG_PCI_IOV
     .sriov_configure = demo_pcie_sriov_configure,
-#endif  //CONFIG_PCI_IOV
-#endif  //OPEN_SRIOV
+#endif  // CONFIG_PCI_IOV
+#endif  // OPEN_SRIOV
 };
 
 
@@ -653,6 +754,8 @@ static int __init pcie_demo_init(void)
     misc_register(&pcie_demo_drv);
     return pci_register_driver(&demo_pcie_driver);
 }
+module_init(pcie_demo_init);
+
 
 static void __exit pcie_demo_exit(void)
 {
@@ -660,9 +763,8 @@ static void __exit pcie_demo_exit(void)
     misc_deregister(&pcie_demo_drv);
     pci_unregister_driver(&demo_pcie_driver);
 }
-
-module_init(pcie_demo_init);
 module_exit(pcie_demo_exit);
+
 
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("baiy <baiyang0223@163.com>");
